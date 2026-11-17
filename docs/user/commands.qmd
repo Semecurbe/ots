@@ -1,0 +1,53 @@
+---
+title: "Command reference"
+---
+
+This page is generated from the command registry, like `/help` in the console.
+
+## Console commands
+
+```{python}
+#| echo: false
+#| output: asis
+import html
+
+from onthesignal.cli import commands as c
+
+rows = ["| Command | Description |", "|---|---|"]
+for s in sorted(c.SLASH.values(), key=lambda s: (s.category, s.name)):
+    usage = html.escape(s.usage).replace("|", "&#124;").replace("-", "&#45;")
+    rows.append(f"| <code>{usage}</code> | {s.description} |")
+print("\n".join(rows))
+```
+
+## Analyses
+
+Each analysis is available as `/name S1 key=value...` and as the Python function
+`name(S1, key=value...)`. Without parameters, the `/` command opens a form.
+
+```{python}
+#| echo: false
+#| output: asis
+from onthesignal.core.registry import commands
+
+for cmd in sorted(commands(), key=lambda c: (c.category, c.name)):
+    args = ", ".join("S" if cmd.n_signals == 1 else f"S{i + 1}" for i in range(cmd.n_signals))
+    print(f"### `{cmd.name}({args}, ...)`\n\n{cmd.description}.\n")
+    print("| Parameter | Default | Unit | Description |\n|---|---|---|---|")
+    for p in cmd.params:
+        adv = " *(advanced)*" if p.advanced else ""
+        print(f"| `{p.name}` | `{p.describe_default()}` | {p.unit} | {p.help}{adv} |")
+    print()
+```
+
+## Other Python functions
+
+| Function | Role |
+|---|---|
+| `load(path, ...)` | load a file into the session |
+| `list_sig()`, `list_res()` | list signals, results |
+| `show(S)` / `S.show()` | plot a time series |
+| `rename_sig(old, new)`, `rm_sig(name)` | manage signals |
+| `report(results, title=..., render=True)` | Quarto report |
+| `run_script(name, S1, ...)`, `batch(target, files, out=...)` | scripts and batches |
+| `acquire(...)`, `realtime(...)` | SeedLink acquisition and live analysis |

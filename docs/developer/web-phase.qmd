@@ -1,0 +1,19 @@
+---
+title: "Web phase (NiceGUI + µPlot)"
+---
+
+Phase 2 (separate specification) adds a web interface. Phase 1 already provides:
+
+- **Pure computations** (`compute_*`) usable from any interface; one `Session` per web user,
+  made current with `set_session` in each request or task (context variable, asyncio-safe).
+- **Parameter declarations** (`Command.params`, `Param.json_schema`) to generate forms.
+- **Serializable results** (`Result.to_dict(curves=True, max_points=...)`): curves are x/y
+  arrays, directly usable by µPlot (log scales supported). The spectrogram is a matrix in
+  `result.extra["image"]` and will need an image rendering or another component.
+- **Display handler**: the web front end installs its own `session.display_handler`.
+- **Long operations**: `Acquisition` and `RealtimeMonitor` run their own thread and report
+  through callbacks (`on_progress`, `on_update`); `stop()` is thread-safe.
+- **Decimation**: `processing.spectral.minmax_envelope` reduces long series for display.
+
+Things to watch: NiceGUI is asyncio-based — run blocking calls (analyses on long records,
+report rendering) in a worker thread (`run.io_bound` / `run.cpu_bound`).

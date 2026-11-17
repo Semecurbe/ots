@@ -1,0 +1,62 @@
+---
+title: "Files"
+---
+
+## miniSEED
+
+```python
+load("data/acq.mseed")                                   # one signal per channel: S1, S2...
+load("data/acq.mseed", select="*.*.*.FH?", unit="V", sensitivity=2.384e-6)
+load("data/acq.mseed", starttime="2026-11-17T10:00:00", endtime="2026-11-17T11:00:00")
+load("data/acq.mseed", gaps="fill")
+```
+
+`/load data/acq.mseed unit=V sensitivity=2.384e-6` does the same in the console.
+
+**Gaps are never filled silently.** The `gaps` option chooses the policy:
+
+| `gaps` | Behaviour |
+|---|---|
+| `longest` (default) | keep the longest continuous segment |
+| `fill` | fill by linear interpolation (do not measure noise on filled parts) |
+| `split` | one signal per continuous segment |
+| `error` | refuse the file |
+
+Whatever the policy, the gaps are listed in `S.gaps`, shown by `S.print()` and recalled in
+every result.
+
+## Text files
+
+One column per channel, with an optional time column. The number of channels is mandatory and
+checked against the file.
+
+```python
+load("bench.txt", n_channels=3, fs=1000)                 # no time column
+load("scope.csv", n_channels=2, time_col=0, decimal=",") # time in column 0, decimal comma
+load("log.txt", n_channels=1, time_col=0, time_format="iso")
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `n_channels` | asked | number of data columns |
+| `time_col` | none | index of the time column |
+| `fs` | from the time column | sampling rate, mandatory without time column |
+| `delimiter` | automatic | tab, `;`, `,` or spaces |
+| `decimal` | `.` | `,` accepted |
+| `skiprows`, `comment` | automatic, `#` | header lines |
+| `time_format` | `relative` | `relative` (s), `epoch` or `iso` |
+| `starttime` | 1970-01-01 | time origin for relative times |
+| `names`, `units`, `sensitivities` | `XX.<file>..C01`… | per-channel codes and parameters |
+| `resample` | false | interpolate an irregular time column instead of failing |
+
+With a time column, the sampling rate is the inverse of the median step; a step deviating by
+more than 1 % from it is an error (unless `resample=True`). In the console, `/load file.txt`
+asks the number of channels, the time column and, when needed, the sampling rate.
+
+## Export
+
+```python
+S1.save("S1.mseed")    # miniSEED, STEIM2 for integer counts (SEED code lengths checked)
+S1.save("S1.csv")      # header + time (s) and value (counts)
+r.save("result.json")  # any result; .csv gives the table of values
+```

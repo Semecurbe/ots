@@ -1,0 +1,51 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onthesignal"
+version = "0.1.0"
+description = "Signal processing toolkit for the characterization of seismic acquisition chains"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "obspy>=1.4",
+    "matplotlib>=3.8",
+    "prompt_toolkit>=3.0",
+    "rich>=13",
+    "jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+ai = ["anthropic", "openai", "ollama"]
+web = ["nicegui"]
+docs = ["quartodoc", "griffe<2", "jupyter"]
+dev = ["pytest>=8", "ruff", "mypy"]
+
+[project.scripts]
+onthesignal = "onthesignal.cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+onthesignal = ["templates/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+filterwarnings = ["ignore::DeprecationWarning:obspy.*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["E741"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true

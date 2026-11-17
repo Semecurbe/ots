@@ -1,0 +1,21 @@
+---
+title: "Troubleshooting"
+---
+
+| Message | Cause and remedy |
+|---|---|
+| `lnm needs a ground-motion unit (m, m/s or m/s**2)` | set `S.unit` and the sensitivity of the whole chain (sensor × digitizer) |
+| `fmax = 100 Hz is not below Nyquist` | the band is limited by the sampling rate; nothing to do, or lower `fmax` |
+| `Probable saturation` | samples reach 99.9 % of PE/2: reduce the amplitude or check `full_scale` |
+| `The source file has N gap(s)` | the policy given by `gaps` was applied; see `S.print()` |
+| `Irregular time column` | text file with an irregular time step: fix it or `resample=True` |
+| `n columns found, m expected` | `n_channels` / `time_col` do not match the file |
+| `The sine fit did not converge` | give `f0`, check that the record holds a single sine |
+| `coincides with a mains line` | choose another test frequency (not a sub-multiple of 50 Hz) |
+| `SFDR limited by the noise floor` | no real spur emerges: the value depends on N and the window |
+| `Quarto is not installed` | install Quarto, or render the report later with `quarto render` |
+| `The 'anthropic' package is not installed` | `pip install -e ".[ai]"` |
+| `No model configured for ollama` | set `[ai] model` or use `/model ollama <model>` |
+| figures do not appear | set `[console] mpl_backend` (e.g. `TkAgg`, `QtAgg`) and check `$DISPLAY` |
+
+`/debug on` shows the full traceback of the next errors.

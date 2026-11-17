@@ -1,0 +1,88 @@
+---
+title: "Noise and dynamic range"
+---
+
+## Objective
+
+Characterize a record **without useful signal** (e.g. digitizer inputs shorted): mean
+(offset), RMS noise, peak-to-peak, and dynamic range (DR), in a study band. Functions:
+`noise` (table), `noise_fft` (with the amplitude spectrum), `noise_dsp` (with the Welch PSD and
+the RMS obtained by integrating it).
+
+## Principle and equations
+
+1. The **mean** is computed on the raw samples (counts): it is the offset.
+2. The record is detrended and limited to the study band, optionally without mains lines
+   ([Preprocessing](preprocessing.qmd)); on this band-limited noise $y$:
+   - **RMS** $\sigma = \sqrt{\overline{(y - \bar y)^2}}$ (standard deviation);
+   - **peak-to-peak** $\max y - \min y$;
+   - **Gaussian peak-to-peak** $6.6\,\sigma$ (interval holding 99.9 % of Gaussian samples).
+3. **Dynamic range**, both terms in counts:
+
+$$
+DR = 20\log_{10}\left(\frac{PE/(2\sqrt2)}{\sigma}\right)
+$$
+
+$PE$ is the full scale peak-to-peak (default $2^{24}$ counts) and $PE/(2\sqrt2)$ the RMS of a
+full-scale sine. An ideal $N$-bit quantizer ($\sigma = 1/\sqrt{12}$ LSB) gives
+$DR = 6.02N + 1.76$ dB, i.e. 146.26 dB for 24 bits.
+
+4. **Noise ENOB** $= (DR - 1.76)/6.02$.
+
+Physical values are counts × sensitivity (unit per count).
+
+## Assumptions and validity
+
+- Stationary noise over the record; at least 10 periods of $f_{min}$ when a high-pass is used.
+- The full scale $PE$ must be expressed in the same unit as the samples (counts for a
+  digitizer); it comes from the call, the signal attribute `S.full_scale`, the configuration
+  or the default $2^{24}$, in that order.
+- Saturation (samples at 99.9 % of $PE/2$) is reported: the noise of a clipped record is
+  meaningless.
+
+## Numerical implementation
+
+`analysis.noise.compute_noise` → `processing.band.band_limit` (FFT mask by default),
+`numpy.std`, `numpy.ptp`. `noise_fft` adds `amplitude_spectrum` of the detrended record (Hann);
+`noise_dsp` adds `welch_psd` and `rms_from_psd` over the same band and mains exclusions, so
+that the two RMS values must agree.
+
+## Limits, biases and uncertainty
+
+- The peak-to-peak value grows with the record length (extreme-value statistics); compare
+  records of equal length, or use the Gaussian peak-to-peak.
+- The relative standard uncertainty of the RMS of $M$ independent Gaussian samples is about
+  $1/\sqrt{2M}$, with $M \approx 2\,\mathrm{ENBW} \times T$.
+- Low-frequency drift inside the band is part of the noise; use `detrend="linear"` or a
+  high-pass `fmin` if it must be excluded, and say so in the report.
+
+## Validation
+
+| Case | Expected | Tolerance | Test |
+|---|---|---|---|
+| White noise σ = 100 counts, 10⁶ samples, full band | RMS = 100 | ± 1 % | `test_v01_white_noise_rms` |
+| Same, RMS from the PSD | = RMS | ± 2 % | `test_v02_psd_integration_matches_time_rms` |
+| Uniform quantization noise, $PE = 2^{24}$ | DR = 146.26 dB | ± 0.1 dB | `test_v03_ideal_quantization_dynamic_range` |
+| Clipped sine | saturation warning | — | `test_saturation_warning` |
+
+## Worked example
+
+```{python}
+import numpy as np
+from onthesignal import Signal
+from onthesignal.analysis import compute_noise_dsp
+
+rng = np.random.default_rng(0)
+fs, n = 1000.0, 600_000
+x = rng.normal(0, 2.3, n) + 3 * np.sin(2 * np.pi * 50 * np.arange(n) / fs) + 12.3
+s = Signal(np.round(x), fs, network="RD", station="SN270", location="00", channel="FHZ",
+           unit="V", sensitivity=2.384e-6, name="S1")
+r = compute_noise_dsp(s, remove_mains=True, cumulative=True)
+print(r.to_text())
+r.plot()
+```
+
+## References
+
+- IEEE Std 1241 (dynamic range, effective resolution).
+- Analog Devices, MT-001: *Taking the mystery out of the infamous formula SNR = 6.02N + 1.76 dB*.

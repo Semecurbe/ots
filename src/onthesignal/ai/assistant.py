@@ -1,0 +1,139 @@
+"""The assistant: conversation loop with tool calls, confirmation policy, script generation."""
+
+from __future__ import annotations
+
+import json
+import re
+from datetime import date
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from ..core.errors import ParameterError
+from ..core.registry import commands
+from .context import system_prompt
+from .providers import LLMProvider, Reply, ToolCall, make_provider
+from .tools import Tool, build_tools
+
+if TYPE_CHECKING:
+    from ..cli.console import OnTheSignalConsole
+
+MAX_ROUNDS = 8
+CODE_BLOCK = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
+
+SCRIPT_SYSTEM = """You write onthesignal scripts. Reply with exactly one ```python code block
+containing a complete script that follows the template below: same header docstring (Name,
+Description, Author, Version, Inputs), a PARAMS list of Param, a pure run(signals, **params)
+function returning a Result (no display, no file output), an optional plot(result, fig)
+function, and the __main__ block. Use numpy, scipy and the onthesignal API only. Code,
+comments and messages in English."""
+
+
+def extract_code(text: str) -> str | None:
+    match = CODE_BLOCK.search(text or "")
+    return match.group(1).strip() + "\n" if match else None
+
+
+class Assistant:
+    """AI assistant bound to a console session."""
+
+    def __init__(self, console: OnTheSignalConsole, provider: LLMProvider | None = None) -> None:
+        self.console = console
+        self.session = console.session
+        self.provider = provider or make_provider(self.session.config)
+        self.tools: dict[str, Tool] = build_tools(self.session)
+        self.transcript: list[dict] = []
+
+    # ------------------------------------------------------------------ conversation
+    def ask(self, text: str) -> str:
+        """Send a question; run the requested tools; return the final answer text."""
+        self.transcript.append({"role": "user", "content": text})
+        system = system_prompt(self.session)
+        specs = [t.spec for t in self.tools.values()] if self.provider.supports_tools else []
+        answer = ""
+        for _ in range(MAX_ROUNDS):
+            reply: Reply = self.provider.chat(system, self.transcript, specs)
+            self.transcript.append({"role": "assistant", "content": reply.text,
+                                    "tool_calls": reply.tool_calls})
+            if reply.text:
+                answer = reply.text
+                self._print(reply.text)
+            if not reply.tool_calls:
+                if not self.provider.supports_tools:
+                    self._offer_code(reply.text)
+                break
+            for call in reply.tool_calls:
+                outcome = self.execute(call)
+                self.transcript.append({"role": "tool", "id": call.id, "name": call.name,
+                                        "content": json.dumps(outcome, ensure_ascii=False,
+                                                              default=str)[:20000]})
+        else:
+            self.console.display.warning("The assistant stopped after too many tool calls")
+        return answer
+
+    def _print(self, text: str) -> None:
+        from rich.markdown import Markdown
+
+        self.console.display.console.print(Markdown(text))
+
+    def _allowed(self, call: ToolCall, tool: Tool) -> bool:
+        auto = str(self.session.config.get("ai.auto_execute", "read_only")).lower()
+        if not tool.confirm and auto == "read_only":
+            return True
+        args = ", ".join(f"{k}={v!r}" for k, v in call.arguments.items())
+        answer = self.console.ask(f"The assistant wants to run {call.name}({args}). Allow? (y/N)",
+                                  "n")
+        return answer.strip().lower() in ("y", "yes", "o", "oui")
+
+    def execute(self, call: ToolCall) -> dict:
+        """Run one tool call under the confirmation policy; errors are returned to the model."""
+        tool = self.tools.get(call.name)
+        if tool is None:
+            return {"ok": False, "error": f"Unknown tool {call.name}"}
+        if not self._allowed(call, tool):
+            return {"ok": False, "error": "The user refused this action"}
+        self.session.history.append(f"ai: {call.name}({json.dumps(call.arguments, default=str)})")
+        try:
+            return {"ok": True, "result": tool.func(call.arguments)}
+        except Exception as exc:  # reported to the model so it can correct itself
+            return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+
+    def _offer_code(self, text: str) -> None:
+        """Models without tool calling propose Python code: shown, then run on consent."""
+        code = extract_code(text)
+        if not code:
+            return
+        self.console.display.info(code)
+        if self.console.ask("Run this code in the console? (y/N)", "n").strip().lower() in (
+                "y", "yes", "o", "oui"):
+            self.session.history.append("ai: python code run")
+            self.console.run_python(code)
+
+    # ------------------------------------------------------------------ script generation
+    def generate_script(self, name: str, description: str) -> Path:
+        """``/ai_script``: write ``scripts/<name>.py`` from a description (checked, not run)."""
+        from ..scripts import TEMPLATE, check_syntax, script_path
+
+        path = script_path(name)
+        if path.exists() and self.console.ask(
+                f"{path} exists. Overwrite? (y/N)", "n").strip().lower() not in ("y", "yes"):
+            raise ParameterError("Script generation cancelled")
+        api_ref = "\n".join(f"- {c.name}: {c.description}" for c in commands())
+        prompt = (f"Script name: {name}\nTask: {description}\n\nTemplate:\n```python\n"
+                  f"{TEMPLATE.read_text(encoding='utf-8')}```\n\nAvailable analyses "
+                  f"(onthesignal.analysis.compute_<name>(signal, **params) -> Result):\n{api_ref}")
+        reply = self.provider.chat(SCRIPT_SYSTEM, [{"role": "user", "content": prompt}], [])
+        code = extract_code(reply.text)
+        if code is None:
+            raise ParameterError("The model did not return a Python code block")
+        header = (f"# Generated by AI ({self.provider.name}, {self.provider.model}, "
+                  f"{date.today()}) — review before use\n")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(header + code, encoding="utf-8")
+        error = check_syntax(path)
+        if error:
+            self.console.display.error(f"Syntax error in the generated script: {error}")
+        return path
+
+
+def get_assistant(console: Any, provider: LLMProvider | None = None) -> Assistant:
+    return Assistant(console, provider)

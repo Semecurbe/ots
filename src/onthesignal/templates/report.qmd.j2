@@ -1,0 +1,84 @@
+---
+title: "{{ title }}"
+{% if author %}author: "{{ author }}"
+{% endif %}date: "{{ date }}"
+format:
+{% for fmt in formats %}  {{ fmt }}:
+{% if fmt == "html" %}    embed-resources: true
+{% endif %}    toc: true
+{% endfor %}---
+
+## Context
+
+{{ context or "_To be completed: test bench, digitizer settings, purpose of the measurement._" }}
+
+## Analysed signals
+
+| Name | Id (NSLC) | Sampling rate | Samples | Unit | Sensitivity | Source | SHA-256 |
+|---|---|---|---|---|---|---|---|
+{% for s in signals %}| {{ s.name | md }} | {{ s.id | md }} | {{ s.sampling_rate }} Hz | {{ s.npts }} | {{ s.unit | md }} | {{ s.sensitivity }} | {{ s.source_name | md }} | {% if s.sha256 %}`{{ s.sha256[:16] }}…`{% else %}—{% endif %} |
+{% endfor %}
+{% for s in signals if s.gaps %}
+**Gaps in {{ s.name or s.id }}:** {% for g in s.gaps %}{{ g.type }} at {{ g.start }} ({{ "%.3f" | format(g.duration) }} s){% if g.action %}, {{ g.action }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}.
+{% endfor %}
+
+{% for r in results %}
+## {{ r.title | md }}
+
+{% if r.figure %}
+![{{ r.title | md }}]({{ r.figure }}){width=100%}
+{% endif %}
+
+| Quantity | Value | Physical value |
+|---|---|---|
+{% for label, value, phys in r.rows %}| {{ label | md }} | {{ value | md }} | {{ phys | md }} |
+{% endfor %}
+
+{% for name, rows in r.tables.items() if rows %}
+**{{ name | replace("_", " ") | capitalize }}**
+
+| {% for key in rows[0].keys() %}{{ key }} | {% endfor %}
+
+|{% for key in rows[0].keys() %}---|{% endfor %}
+
+{% for row in rows %}| {% for v in row.values() %}{{ v | num }} | {% endfor %}
+
+{% endfor %}
+{% endfor %}
+{% if r.warnings %}
+::: {.callout-warning}
+## Warnings
+{% for w in r.warnings %}
+- {{ w | md }}
+{% endfor %}
+:::
+{% endif %}
+
+<details><summary>Parameters</summary>
+
+| Parameter | Value |
+|---|---|
+{% for k, v in r.params.items() %}| `{{ k }}` | {{ v | md }} |
+{% endfor %}
+
+</details>
+{% endfor %}
+
+## Processing history
+
+{% for s in signals %}
+- **{{ s.name or s.id }}**: {{ s.history | join(" → ") | md or "—" }}
+{% endfor %}
+
+## Software
+
+| Package | Version |
+|---|---|
+{% for name, version in versions.items() %}| {{ name }} | {{ version }} |
+{% endfor %}
+
+Generated on {{ generated }} by onthesignal {{ versions.onthesignal }}.
+
+## Conclusion
+
+{{ conclusion or "_To be completed._" }}

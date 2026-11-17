@@ -1,0 +1,80 @@
+---
+title: "Adding an analysis"
+---
+
+Example: a new `crest_factor` analysis.
+
+## 1. Computation (`analysis/`)
+
+```python
+# src/onthesignal/analysis/crest.py
+import numpy as np
+
+from ..core.params import Param, resolve_params
+from ..core.registry import register
+from ..core.result import Result
+from ..processing.params import TIME_PARAMS
+from ._common import add_counts, clean_params, signal_label, window_signal
+
+CREST_PARAMS = (
+    Param("detrend", str, "constant", choices=("constant", "linear", "none"),
+          help="Trend removal before analysis"),
+    *TIME_PARAMS,
+)
+
+
+@register("crest_factor", CREST_PARAMS, category="measure",
+          description="Crest factor (peak / RMS) of a signal")
+def compute_crest_factor(signal, **params):
+    """Crest factor: maximum absolute value divided by the RMS value.
+
+    Examples
+    --------
+    >>> ...
+    """
+    p = resolve_params(CREST_PARAMS, params, signal, command="crest_factor")
+    sig = window_signal(signal, p)
+    x = sig.data - sig.data.mean()
+    r = Result("crest_factor", title=f"Crest factor — {signal_label(sig)}",
+               signals=[sig.identity()], params=clean_params(p))
+    add_counts(r, "peak", float(np.max(np.abs(x))), "Peak", sig, p)
+    r.add("crest", float(np.max(np.abs(x)) / np.std(x)), "", "Crest factor")
+    return r
+```
+
+Rules: no display, no file output, no global state; parameters declared with `Param`
+(primary ones without `advanced=True` are asked in the console form); warnings with
+`r.warn(...)`; physical values through `add_counts`.
+
+## 2. Registration
+
+Import the module in `analysis/__init__.py`; add `crest_factor = _make("crest_factor")` to
+`api.py` (and to `__all__` and the package `__init__`) so that it is importable. The console
+command `/crest_factor`, its form, `/help crest_factor`, the completion and the AI tool are
+then automatic.
+
+## 3. Figure (optional)
+
+```python
+# src/onthesignal/plot/...
+@plotter("crest_factor")
+def plot_crest(result, fig): ...
+```
+
+or `no_figure("crest_factor")` for a table-only result. Use the style helpers
+(`style_axes`, `info_box`, `legend`, palette `SERIES`).
+
+## 4. Tests
+
+Add validation cases on synthetic signals with known answers to `tests/` (and to the
+validation table of the specification if it is a new metric).
+
+## 5. Documentation
+
+- an algorithm page in `docs/algorithms/` with the eight sections (objective, equations,
+  assumptions, implementation, limits, validation, worked example, references);
+- an entry in the user manual if the usage is not obvious;
+- `quartodoc` section in `docs/_quarto.yml`;
+- `/gen_ai_doc` to regenerate `docs/ai/agent.md`, and "when to use" phrases in
+  `ai/context.py` (`INTENTS`);
+- `CHANGELOG.md`.

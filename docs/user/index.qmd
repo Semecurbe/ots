@@ -1,0 +1,21 @@
+---
+title: "User manual"
+---
+
+onthesignal is an interactive console: you load records (miniSEED or text files, or a
+SeedLink acquisition), run analyses with `/` commands or Python expressions, look at tables
+and figures, and generate reports.
+
+- [Installation](installation.qmd) and [quick start](quickstart.qmd)
+- [Conventions](conventions.qmd): units, sensitivity, dB, dBFS, times
+- [Files](files.qmd): miniSEED, text files, export
+- [Command reference](commands.qmd): every `/` command and Python function
+- [Measurement procedures](measurement.qmd): digitizer self-noise, sine tests, NLNM comparison
+- [Acquisition and real time](acquisition.qmd)
+- [Scripts and batches](scripts.qmd)
+- [Reports](reports.qmd)
+- [AI assistant](ai.qmd)
+- [Configuration](configuration.qmd)
+- [Troubleshooting](troubleshooting.qmd)
+
+The computations are described in the [Algorithms](../algorithms/index.qmd) part.

@@ -1,0 +1,125 @@
+project:
+  type: website
+  output-dir: _site
+
+website:
+  title: "onthesignal"
+  navbar:
+    left:
+      - text: "User manual"
+        href: user/index.qmd
+      - text: "Algorithms"
+        href: algorithms/index.qmd
+      - text: "Developer guide"
+        href: developer/index.qmd
+      - text: "API reference"
+        href: reference/index.qmd
+      - text: "AI functions"
+        href: ai/agent.md
+  sidebar:
+    - title: "User manual"
+      contents:
+        - user/index.qmd
+        - user/installation.qmd
+        - user/quickstart.qmd
+        - user/conventions.qmd
+        - user/files.qmd
+        - user/commands.qmd
+        - user/measurement.qmd
+        - user/acquisition.qmd
+        - user/scripts.qmd
+        - user/reports.qmd
+        - user/ai.qmd
+        - user/configuration.qmd
+        - user/troubleshooting.qmd
+    - title: "Algorithms"
+      contents:
+        - algorithms/index.qmd
+        - algorithms/preprocessing.qmd
+        - algorithms/spectra.qmd
+        - algorithms/noise.qmd
+        - algorithms/lnm.qmd
+        - algorithms/sinefit.qmd
+        - algorithms/sine-metrics.qmd
+        - algorithms/measures.qmd
+        - algorithms/coherence-spectrogram.qmd
+        - algorithms/signal-operations.qmd
+        - algorithms/realtime.qmd
+    - title: "Developer guide"
+      contents:
+        - developer/index.qmd
+        - developer/architecture.qmd
+        - developer/add-analysis.qmd
+        - developer/conventions.qmd
+        - developer/testing.qmd
+        - developer/web-phase.qmd
+
+format:
+  html:
+    theme: cosmo
+    toc: true
+    html-math-method: katex
+    code-overflow: wrap
+
+execute:
+  freeze: auto
+  warning: false
+
+quartodoc:
+  package: onthesignal
+  dir: reference
+  title: API reference
+  parser: numpy
+  sections:
+    - title: Signals, results, session
+      desc: Data model.
+      contents:
+        - core.signal.Signal
+        - core.result.Result
+        - core.params.Param
+        - core.session.Session
+    - title: Files
+      contents:
+        - api.load
+        - io.read
+        - io.mseed.read_obspy
+        - io.text.read_text
+        - io.export.save_signal
+    - title: Analyses
+      desc: Pure computations; the console and `onthesignal.noise(...)` call them through the registry.
+      contents:
+        - analysis.noise.compute_noise
+        - analysis.noise.compute_noise_fft
+        - analysis.noise.compute_noise_dsp
+        - analysis.lnm.compute_lnm
+        - analysis.lnm.peterson_models
+        - analysis.sinefit.fit4
+        - analysis.sinefit.fit_harmonics
+        - analysis.sinefit.compute_sinefit
+        - analysis.sine.compute_sinad
+        - analysis.sine.compute_sfdr
+        - analysis.sine.compute_thd
+        - analysis.sine.compute_dynamic
+        - analysis.measures.compute_frequency
+        - analysis.measures.compute_period
+        - analysis.measures.compute_delay50
+        - analysis.measures.crossings
+        - analysis.spectral.compute_coherence
+        - analysis.spectral.compute_spectrogram
+    - title: Preprocessing
+      contents:
+        - processing.band.band_limit
+        - processing.band.mains_lines
+        - processing.spectral.amplitude_spectrum
+        - processing.spectral.welch_psd
+        - processing.spectral.rms_from_psd
+        - processing.spectral.octave_smooth
+    - title: Reports, scripts, acquisition
+      contents:
+        - api.report
+        - report.generate_report
+        - scripts.run_script
+        - scripts.batch
+        - scripts.main
+        - seedlink.acquisition.Acquisition
+        - seedlink.realtime.RealtimeMonitor

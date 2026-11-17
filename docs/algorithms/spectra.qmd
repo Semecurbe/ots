@@ -1,0 +1,87 @@
+---
+title: "Spectra: FFT normalizations, Welch PSD, smoothing"
+---
+
+## Objective
+
+Give spectra whose values can be read directly: the amplitude of a sine, the level of a noise
+per √Hz, a power spectral density (PSD) whose integral is the variance.
+
+## Principle and equations
+
+For $N$ samples $x_n$, a window $w_n$ and $X_k = \sum_n x_n w_n e^{-2i\pi kn/N}$, with
+$S_1 = \sum w_n$ and $S_2 = \sum w_n^2$:
+
+| Scale | Formula | Reading |
+|---|---|---|
+| `amplitude` | $A_k = 2\,\lvert X_k\rvert / S_1$ | a sine of amplitude $A$ at a bin centre reads $A$ |
+| `rms` | $A_k/\sqrt{2}$ | RMS amplitude |
+| `asd` | $\sqrt{2\,\lvert X_k\rvert^2/(f_s S_2)}$ | noise density in unit/√Hz |
+| `dbfs` | $20\log_{10}\left(A_k / (PE/2)\right)$ | relative to a full-scale sine |
+
+DC and Nyquist bins are not doubled. The equivalent noise bandwidth of the window is
+$\mathrm{ENBW} = f_s S_2 / S_1^2$ (1.5 bins for Hann).
+
+**Welch PSD.** The record is cut into segments of `nperseg` samples overlapping by
+`overlap` (default 50 %), each segment is detrended, windowed (Hann) and its one-sided
+periodogram $P_k = 2\lvert X_k\rvert^2/(f_s S_2)$ computed; the periodograms are averaged
+(mean, or median for records with transients). Units: unit²/Hz.
+
+**RMS from the PSD** (used by `noise_dsp`):
+
+$$
+\sigma = \sqrt{\int_{f_{min}}^{f_{max}} P(f)\,df} \approx \sqrt{\Delta f \sum_k c_k P_k}
+$$
+
+with the same exclusion of mains zones as the time-domain RMS.
+
+**Fractional-octave smoothing** (used by `lnm`): the PSD is averaged (linear power) in bands
+$[f_c\,2^{-1/2n}, f_c\,2^{1/2n}]$ centred on log-spaced frequencies $f_c = f_0 2^{j/n}$, default
+$n = 8$.
+
+## Assumptions and validity
+
+- `amplitude` is exact for a sine at a bin centre; between bins the Hann window under-reads
+  by up to 1.42 dB (scalloping). Use `window="flattop"` for amplitude accuracy.
+- For noise, the amplitude spectrum depends on $N$: read noise levels on the `asd` scale or
+  on the PSD.
+- Welch averaging assumes stationarity over the record.
+
+## Numerical implementation
+
+`processing.spectral.amplitude_spectrum` uses periodic (DFT-even) windows from
+`scipy.signal.get_window` and `scipy.fft.rfft`. `welch_psd` wraps `scipy.signal.welch`
+(`scaling="density"`); the default segment length is the largest power of two not above
+$N/8$ (about 15 averages with 50 % overlap), or `seg_duration` seconds.
+
+## Limits, biases and uncertainty
+
+- The Welch estimate of a Gaussian noise PSD has a relative standard deviation of about
+  $1/\sqrt{n_{avg}}$ (a little more with overlap); the RMS from the PSD is more stable.
+- Smoothing over 1/8 octave hides lines narrower than the band.
+
+## Validation
+
+| Case | Expected | Test |
+|---|---|---|
+| Sine of amplitude 3 at a bin centre, Hann, `amplitude` | 3 ± 0.1 % | `test_v13_fft_amplitude_scaling` |
+| White noise σ = 100, RMS from the PSD | equal to the time RMS ± 2 % | `test_v02_psd_integration_matches_time_rms` |
+
+## Worked example
+
+```{python}
+import numpy as np
+from onthesignal.processing import amplitude_spectrum, welch_psd, rms_from_psd
+
+fs, n = 1000.0, 100_000
+t = np.arange(n) / fs
+x = 3 * np.sin(2 * np.pi * 10 * t) + np.random.default_rng(1).normal(0, 1, n)
+f, a, info = amplitude_spectrum(x, fs, "hann", "amplitude")
+print("Amplitude read at 10 Hz:", round(a[np.argmin(abs(f - 10))], 4), "| ENBW", info["enbw_hz"], "Hz")
+f, p, info = welch_psd(x - 3 * np.sin(2 * np.pi * 10 * t), fs)
+print("RMS from the PSD:", round(rms_from_psd(f, p, 0, fs / 2), 4), "(true value 1)")
+```
+
+## References
+
+- Welch (1967); Harris (1978); Heinzel et al. (2002).

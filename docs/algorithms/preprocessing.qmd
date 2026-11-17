@@ -1,0 +1,100 @@
+---
+title: "Preprocessing: study band and mains removal"
+---
+
+## Objective
+
+Restrict a record to a **study band** $[f_{min}, f_{max}]$ (default: low-pass 100 Hz) and
+optionally remove the **mains line** (50 Hz, configurable) and its harmonics, before noise
+and sine analyses. The band-limited data and its **noise-equivalent bandwidth (ENBW)** are
+returned, so that every RMS value can be traced to the bandwidth it was measured in.
+
+## Principle and equations
+
+**Detrending** removes the mean (`constant`, default) or a least-squares line (`linear`).
+
+**FFT mask (default, `filter_method="fft"`).** With $X_k$ the real FFT of the $N$ samples
+($f_k = k f_s / N$), the filtered record is
+
+$$
+y_n = \mathrm{IFFT}\left(X_k \cdot \mathbb{1}\left[f_{min} \le f_k \le f_{max}\right]
+\cdot \prod_{m} \mathbb{1}\left[|f_k - m f_{mains}| > w/2\right]\right),
+$$
+
+where $w$ is `mains_width` (default 1 Hz, i.e. ±0.5 Hz). By Parseval's theorem the variance of
+$y$ is the power of the kept bins, and the ENBW is the width of the kept bins:
+
+$$
+\mathrm{ENBW} = \frac{f_s}{N}\sum_{k\ \mathrm{kept}} c_k, \qquad c_k = \tfrac12 \text{ at DC and Nyquist, } 1 \text{ elsewhere}.
+$$
+
+**Butterworth (`filter_method="iir"`).** A Butterworth filter of order `filter_order` is
+applied forward and backward (`scipy.signal.sosfiltfilt`), with `iirnotch` filters of quality
+factor $Q = f/w$ at the mains lines. The forward-backward filter has the power response
+$|H(f)|^4$, hence
+
+$$
+\mathrm{ENBW} = \int_0^{f_s/2} |H(f)|^4 \, df .
+$$
+
+For an analog order-4 Butterworth this gives $\mathrm{ENBW} \approx 0.898\,f_c$: the white-noise
+RMS is about 5 % below the value of the nominal band. The software always computes and reports
+the actual ENBW (numerically, from `sosfreqz`).
+
+**Mains lines** are $k \cdot f_{mains}$ for $k = 1 \dots K$ with $k\,f_{mains} \le f_{max}$
+(all lines by default, or `mains_harmonics`).
+
+## Assumptions and validity
+
+- The FFT mask treats the record as periodic: the jump between the last and first samples
+  spreads a little energy over all frequencies. It is negligible for long noise records; use
+  `detrend="linear"` when the record drifts.
+- When `fmax` is at or above Nyquist no low-pass is applied: the band is limited by the
+  sampling and a warning says so.
+- With the IIR method, filter transients are removed at both ends: the impulse response is
+  computed and the samples holding 99.9 % of its energy are trimmed (at most 10 % of the
+  record).
+
+## Numerical implementation
+
+`processing.band.band_limit` uses `scipy.fft.rfft`/`irfft` (multi-threaded) for the mask, and
+`scipy.signal.butter`, `iirnotch`, `tf2sos`, `sosfiltfilt` and `sosfreqz` (65 536 points) for
+the IIR method. The FFT mask is the default because its bandwidth is exact, its phase is zero
+and it is consistent with the integration of the PSD (see [Spectra](spectra.qmd)).
+
+## Limits, biases and uncertainty
+
+- Removing the mains lines also removes the noise inside the excluded zones: the ENBW is
+  reduced accordingly (98.5 Hz for a 0–100 Hz band with 50 and 100 Hz removed). The RMS is
+  therefore the RMS *in the reported ENBW*.
+- A brick-wall mask rings in the time domain: peak-to-peak values of filtered noise are
+  slightly larger than with a smooth filter.
+- The IIR ENBW departs from the analog value near Nyquist (bilinear transform warping).
+
+## Validation
+
+| Case | Expected | Test |
+|---|---|---|
+| White noise, σ = 100 counts, band 0–50 Hz at 200 Hz | RMS = 100/√2, ENBW = 50 Hz | `test_band_limited_white_noise` |
+| 50 Hz line of 50 counts + unit noise, mains removed | RMS = √(98.5/500), ENBW 98.5 Hz | `test_mains_removal_and_enbw` |
+| IIR order 4, $f_c$ = 5 Hz at 200 Hz | ENBW = 0.898 $f_c$ ± 1 %; RMS follows the ENBW | `test_iir_band_reports_effective_enbw` |
+
+## Worked example
+
+```{python}
+import numpy as np
+from onthesignal.processing import band_limit
+
+rng = np.random.default_rng(0)
+fs, n = 1000.0, 400_000
+x = rng.normal(0, 1, n) + 50 * np.sin(2 * np.pi * 50 * np.arange(n) / fs)
+for method in ("fft", "iir"):
+    out = band_limit(x, fs, fmax=100, remove_mains=True, method=method)
+    print(f"{method}: RMS = {out.data.std():.4f}, ENBW = {out.enbw:.2f} Hz, "
+          f"removed lines = {out.removed_lines}")
+```
+
+## References
+
+- Harris (1978); Heinzel et al. (2002) — windows and equivalent noise bandwidth.
+- SciPy documentation: `scipy.signal.sosfiltfilt`, `scipy.signal.iirnotch`.

@@ -1,0 +1,34 @@
+---
+title: "Installation"
+---
+
+## Requirements
+
+- Linux, Python ≥ 3.11.
+- [Quarto](https://quarto.org) to render reports (PDF through Typst, bundled with Quarto, or
+  LaTeX/TinyTeX).
+- A terminal text editor for scripts: `nano` (default) or `vi`.
+- For the AI assistant: an API key (Claude, ChatGPT) or a local [Ollama](https://ollama.com)
+  server.
+
+## Install
+
+```bash
+cd onthesignal
+python3 -m venv .venv
+.venv/bin/pip install -e .            # core
+.venv/bin/pip install -e ".[ai]"      # + AI providers (anthropic, openai, ollama)
+.venv/bin/pip install -e ".[dev,docs]" # + tests and documentation tools
+```
+
+The `onthesignal` command is then available in `.venv/bin/`.
+
+## First launch
+
+```bash
+.venv/bin/onthesignal                     # empty console
+.venv/bin/onthesignal data/*.mseed        # console with files loaded as S1, S2...
+.venv/bin/onthesignal --version
+```
+
+Type `/` to open the command menu, `/help` for the list, `/quit` (or Ctrl+D) to leave.

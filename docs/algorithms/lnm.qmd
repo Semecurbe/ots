@@ -1,0 +1,81 @@
+---
+title: "Comparison with the Peterson noise models"
+---
+
+## Objective
+
+Compare the PSD of a record with the **New Low Noise Model** (NLNM, the "gabarit") and the
+New High Noise Model (NHNM) of Peterson (1993), in the quantity matching the signal unit:
+displacement (`m`), velocity (`m/s`) or acceleration (`m/s**2`).
+
+## Principle and equations
+
+The models are defined for acceleration, in dB re 1 (m/s²)²/Hz, as piecewise-linear functions
+of $\log_{10} T$ between 0.1 s and 100 000 s. For $\omega = 2\pi f$:
+
+$$
+P_v = \frac{P_a}{\omega^2} \;\Rightarrow\; NLNM_v = NLNM_a - 20\log_{10}(2\pi f), \qquad
+NLNM_d = NLNM_a - 40\log_{10}(2\pi f).
+$$
+
+The record is converted to physical units ($x = \text{counts} \times \text{sensitivity}$), its
+Welch PSD is computed in dB re 1 unit²/Hz and smoothed over 1/8 octave, and the difference
+
+$$
+\Delta(f) = PSD_{dB}(f) - NLNM_{dB}(f)
+$$
+
+is evaluated over the frequencies common to the PSD and the model.
+
+## Assumptions and validity
+
+- The unit and the sensitivity must describe the **whole chain**. For a digitizer alone
+  (volts), give the sensitivity of digitizer × sensor, e.g.
+  $1/(1500\ \text{V/(m/s)} \times 419\,430\ \text{counts/V}) \approx 1.59\cdot10^{-9}$ (m/s)/count.
+  Other units are refused with an explicit message.
+- The sensitivity is scalar: the response must be flat in the compared band.
+- Long periods need long segments: the lowest frequency is about 1/`seg_duration`.
+
+## Numerical implementation
+
+`analysis.lnm.compute_lnm`: `welch_psd` (Hann, segments of the largest power of two ≤ N/8,
+50 % overlap), `octave_smooth` (1/n octave, `smoothing`), models from
+`obspy.signal.spectral_estimation.get_nlnm` / `get_nhnm`, converted with the formulas above
+and interpolated linearly in $\log_{10} T$. The figure shows the raw and smoothed PSD with
+the models on top, and $\Delta$ below (zones under the NLNM shaded); the abscissa is the period
+by default (`x="freq"` for frequency).
+
+## Limits, biases and uncertainty
+
+- A mean Welch PSD is not the PPSD statistical mode of McNamara & Buland (2004): transients
+  raise it. Use `average="median"` on records with events.
+- Smoothing reduces the variance but lowers narrow peaks.
+
+## Validation
+
+| Case | Expected | Tolerance | Test |
+|---|---|---|---|
+| White acceleration noise σ, fs | PSD = $2\sigma^2/f_s$ | ± 0.5 dB | `test_v09_lnm_levels` |
+| Model conversions | $-20\log_{10}\omega$, $-40\log_{10}\omega$ | < 0.01 dB | `test_v09_lnm_levels` |
+| Signal in V | explicit unit error | — | `test_lnm_requires_motion_unit` |
+
+## Worked example
+
+```{python}
+import numpy as np
+from onthesignal import Signal
+from onthesignal.analysis import compute_lnm
+
+rng = np.random.default_rng(3)
+sens = 1.59e-9  # (m/s)/count
+s = Signal(rng.normal(0, 1e-8, 3600 * 100) / sens, 100.0, network="RD", station="SN270",
+           channel="HHZ", unit="m/s", sensitivity=sens, name="S3")
+r = compute_lnm(s)
+print(r.to_text())
+r.plot()
+```
+
+## References
+
+- Peterson (1993), USGS OFR 93-322.
+- McNamara & Buland (2004), BSSA 94(4).

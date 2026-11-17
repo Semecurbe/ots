@@ -1,0 +1,62 @@
+---
+title: "Real-time statistics and spectra"
+---
+
+## Objective
+
+Follow SeedLink streams live: mean, standard deviation and peak-to-peak over a sliding window,
+and an FFT amplitude spectrum or a Welch PSD over a longer sliding window.
+
+## Principle and equations
+
+Each channel feeds a ring buffer of $\lceil \max(T_{stats}, T_{spec}) f_s\rceil$ samples. Every
+refresh period, the last $T_{stats} f_s$ samples give the mean, the standard deviation and the
+peak-to-peak value (counts, and physical with `--sensitivity`); the last $T_{spec} f_s$ samples
+give the spectrum (see [Spectra](spectra.qmd)).
+
+Gaps (a record starting more than half a sample after the previous end) are written as NaN in
+the buffer: statistics ignore them, and the spectrum is skipped until the window is free of
+gaps.
+
+## Assumptions and validity
+
+Defaults: $T_{stats}$ = 10 s, $T_{spec}$ = 60 s, table refreshed every second, figure every
+2 s. The spectrum resolution is $1/T_{spec}$.
+
+## Numerical implementation
+
+`seedlink.realtime.RealtimeMonitor`: reception in a thread (ObsPy EasySeedLink client),
+computation on demand (`snapshot`), display by the caller (rich live table, matplotlib figure
+updated in place). `--record DIR` appends every received record to a miniSEED file.
+
+## Limits, biases and uncertainty
+
+Statistics over a short window fluctuate: the relative uncertainty of a standard deviation
+over $M$ independent samples is about $1/\sqrt{2M}$.
+
+## Validation
+
+| Case | Test |
+|---|---|
+| Ring buffer wrap-around; statistics and PSD from a simulated stream; recording | `test_realtime_monitor_statistics_and_spectra` |
+
+## Worked example
+
+Not executed here (it needs a SeedLink server):
+
+```bash
+onthesignal rt --server 10.16.0.163 --network RD --station SN270 --channels "FH?" \
+               --mode dsp --window 10 --spectral-window 60 --sensitivity 2.384e-6 --unit V
+```
+
+```python
+from onthesignal.seedlink.realtime import RealtimeMonitor
+
+monitor = RealtimeMonitor("10.16.0.163", [("RD", "SN270", "00", "FHZ")], mode="fft")
+monitor.run(lambda snaps: print(snaps[0].std), refresh=1.0, duration=30)
+```
+
+## References
+
+- SeedLink protocol, SeisComP documentation (`seedlink`), and ObsPy
+  `obspy.clients.seedlink.easyseedlink`.

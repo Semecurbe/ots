@@ -1,0 +1,36 @@
+---
+title: "Reports"
+---
+
+```text
+ots> /dynamic S2 S1                      # analysis (S1 = noise record)
+ots> /report title="Digitizer SN270" render=true
+ots> /report 3                           # the last 3 results
+ots> /report all formats=html
+```
+
+```python
+report(title="Digitizer SN270", render=True)            # last result
+report(session.results[-3:], formats=["pdf"], render=True)
+dynamic(S2, noise=S1, report=True)
+```
+
+A report is a folder `reports/YYYY-MM-DD_hhmm_<title>/` with `report.qmd` and `figures/`
+(PNG). It contains: context (free text), analysed signals (codes, sampling rate, unit,
+sensitivity, source file, SHA-256, gaps), one section per result (figure, values with units,
+tables, warnings, parameters), processing history, software versions, and a conclusion to
+complete.
+
+`render=true` runs `quarto render`; otherwise render it yourself:
+
+```bash
+cd reports/2026-11-17_1030_digitizer-sn270
+quarto render report.qmd            # HTML and PDF
+```
+
+The PDF engine is chosen in the configuration: `[report] pdf_engine = "typst"` (default,
+bundled with Quarto) or `"latex"` (TinyTeX: `quarto install tinytex`).
+
+The template can be customized: copy `src/onthesignal/templates/report.qmd.j2` to
+`templates/report.qmd.j2` in your project (logo, laboratory header...). Reports are written in
+English.

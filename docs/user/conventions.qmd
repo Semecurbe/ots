@@ -1,0 +1,22 @@
+---
+title: "Conventions"
+---
+
+| Topic | Convention |
+|---|---|
+| Time | UTC (`obspy.UTCDateTime`); durations in seconds; frequencies in Hz |
+| Samples | stored in raw digitizer units (counts), float64 |
+| **Sensitivity** | physical unit **per count**: `physical = counts × sensitivity`. StationXML gives counts per unit: its value will be inverted when StationXML import is added |
+| Units | `counts`, `V`, `m`, `m/s`, `m/s**2` (variants such as `m/s2`, `M/S` are normalized) |
+| Full scale (PE) | peak-to-peak, in counts; default `2**24` (24 bits). Precedence: call > `S.full_scale` > configuration > default |
+| Amplitude of a sine | peak amplitude unless "RMS" is stated |
+| PSD | one-sided, unit²/Hz; in dB: dB re 1 unit²/Hz |
+| dBFS | relative to a full-scale sine (peak PE/2, RMS PE/(2√2)) |
+| dBc | relative to the fundamental |
+| Delay | `Δt = t(S2) − t(S1)`, positive when S2 lags |
+| Names | functions in lower case (`sinad`, `sfdr`, `thd`); upper-case aliases `SINAD`, `SFDR`, `THD` in the console |
+
+Example of sensitivities:
+
+- 24-bit digitizer, 40 V peak-to-peak: `2.384e-6` V/count (40 / 2²⁴);
+- the same digitizer with a 1500 V/(m/s) sensor: `1 / (1500 × 419430) ≈ 1.59e-9` (m/s)/count.

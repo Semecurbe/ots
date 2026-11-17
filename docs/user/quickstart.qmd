@@ -1,0 +1,45 @@
+---
+title: "Quick start"
+---
+
+## A session
+
+```text
+$ onthesignal data/acquisition_FHZ.mseed
+onthesignal 0.1.0 — 3 signal(s) loaded (S1, S2, S3). Type / for the list of commands.
+ots> list_sig()
+ots> S1.sensitivity = 2.384e-6; S1.unit = "V"      # 40 V p-p / 2**24 counts
+ots> S1.print()
+ots> noise(S1, remove_mains=True)                  # results table
+ots> /noise_dsp S1                                 # form with defaults, then figure
+ots> /dynamic S2                                   # SINAD, ENOB, SFDR, THD, SNR + figures
+ots> /report                                       # report.qmd + figures
+ots> S3.sensitivity = 1.59e-9; S3.unit = "m/s"     # 1 / (1500 V/(m/s) × 419430 counts/V)
+ots> lnm(S3)
+ots> /ai is the noise of S3 below the NLNM?
+```
+
+## Two ways to type a command
+
+| Input | Example | Notes |
+|---|---|---|
+| `/` command | `/noise S1 fmax=50 remove_mains=true` | without parameters, a form asks for them (Enter keeps the default); `--defaults` skips the form |
+| Python | `noise(S1, fmax=50)` | full Python: variables, loops, `S3 = S1 + S2`, `r["rms"]` |
+
+Analyses return a **result**: `r = noise(S1)`, then `r["rms"]`, `r["dr"]`, `r.to_text()`,
+`r.save("r.json")`, `r.plot()`.
+
+## Signals
+
+```python
+S1.print()                 # every attribute and basic statistics
+S1.show()                  # time series (matplotlib window)
+S2 = 2 * S1                # new signal, amplitude doubled
+S4 = S1 + S3               # sum on the common time window (interpolated if needed)
+S5 = S1.slice(10, 70)      # seconds 10 to 70
+S1.lnm()                   # same as lnm(S1)
+list_sig()                 # table of the signals
+```
+
+Signals assigned to a variable are registered in the session under that name; deleting the
+variable (`del S4`) removes the signal.

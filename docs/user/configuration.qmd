@@ -1,0 +1,46 @@
+---
+title: "Configuration"
+---
+
+The global file `~/.config/onthesignal/config.toml` is overridden by `onthesignal.toml` in the
+working directory. `/config` shows the merged configuration and the files read;
+`/config section.key=value` changes a value for the session.
+
+```toml
+[analysis]          # defaults of the analysis parameters with the same name
+fmax = 100.0
+mains_freq = 50.0
+full_scale = 16777216      # 2**24
+
+[console]
+editor = "nano"            # or "vi"
+mpl_backend = "QtAgg"      # matplotlib backend (TkAgg by default)
+history_file = "~/.local/state/onthesignal/history"
+
+[seedlink]
+server = "10.16.0.163"
+port = 18000
+network = "RD"
+station = "SN270"
+reconnect_attempts = 5
+reconnect_delay = 5.0
+
+[ai]
+provider = "ollama"        # "anthropic", "openai" or "ollama"
+model = "<model name>"
+base_url = ""
+auto_execute = "read_only"
+send_raw_data = false
+
+[report]
+pdf_engine = "typst"       # or "latex"
+author = ""
+
+[paths]
+scripts = "scripts"
+reports = "reports"
+state = ".onthesignal"
+```
+
+Parameter precedence: value given in the call > signal attribute (`S.full_scale`) >
+`[analysis]` section > built-in default.

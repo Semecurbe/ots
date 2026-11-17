@@ -1,0 +1,74 @@
+---
+title: "Architecture"
+---
+
+## Layers
+
+Each layer only depends on the layers below it.
+
+| Layer | Packages | Role |
+|---|---|---|
+| Interfaces | `cli` (phase 1), web (phase 2) | input, display |
+| Services | `api`, `report`, `scripts`, `ai`, `core.session`, `core.registry` | orchestration, session, reports |
+| Rendering | `plot` | figures built from `Result` objects |
+| Core | `core` (`Signal`, `Result`, `Param`), `io`, `processing`, `analysis`, `seedlink` | pure computation and data access |
+
+```text
+src/onthesignal/
+├── core/        Signal, Result, Param, Session, registry, configuration, units, errors
+├── io/          miniSEED, text files, export
+├── processing/  study band, mains, spectral estimation, common parameters, checks
+├── analysis/    noise, lnm, sinefit, sine (SINAD/SFDR/THD/dynamic), measures, spectral
+├── plot/        matplotlib renderers of each result kind, style
+├── report/      Quarto report generation
+├── scripts/     user scripts, batches, standalone entry point
+├── seedlink/    client helpers, acquisition, real time
+├── ai/          providers, tools, context (agent.md), assistant
+├── cli/         console, / commands, forms, completion, display, editor
+├── templates/   script_template.py, report.qmd.j2
+└── api.py       public functions built from the registry
+```
+
+## Design rules
+
+- **R1** `core`, `io`, `processing`, `analysis` import neither matplotlib, prompt_toolkit nor
+  rich, and print nothing (logging only).
+- **R2** an analysis is a pure function `compute_x(signal(s), **params) -> Result`.
+- **R3** parameters are declared once (`Param`): Python defaults, console forms, help, AI JSON
+  schemas and future web forms all come from the declaration.
+- **R4** results are serializable (`Result.to_dict()` / `to_json()`).
+- **R5** `plot_*` functions fill a figure from a result; they never compute and never block.
+- **R6** state lives in a `Session` (current session in a context variable); no globals.
+- **R7** long operations (acquisition, real time) run in a thread, report progress through a
+  callback and can be stopped.
+- **R8** every user-facing feature is registered once in the command registry.
+- **R9** results carry the parameters used, the signal identities (with SHA-256 of the source
+  file), the software version and the time.
+
+## Data flow of an analysis
+
+```text
+/noise S1 fmax=50          noise(S1, fmax=50)
+        │                         │
+        └──── api.run("noise", "S1", fmax=50) ─────────────┐
+                  │ session.get_signal("S1")               │
+                  │ resolve_params: call > S.full_scale >  │
+                  │   [analysis] config > declared default │
+                  │ Command.func = analysis.noise.compute_noise (pure)
+                  │ session.add_result(result)             │
+                  └ display(result) → session.display_handler (console: rich table +
+                    non-blocking matplotlib window; scripts: text or nothing)
+```
+
+## Data model
+
+- `Signal`: float64 samples in counts, `sampling_rate`, `starttime`, NSLC codes, `unit`,
+  `sensitivity` (unit per count), `full_scale`, `source` + `sha256`, `gaps`, `metadata`,
+  `history`. Operators return new signals.
+- `Result`: `kind`, `title`, `signals`, `params`, `values` (`Value`: value, unit, label),
+  `curves` (`Curve`: x, y, labels, scales), `tables`, `warnings`, `extra` (rendering hints),
+  `meta`. A key `k_phys` holds the physical counterpart of `k`.
+- `Param`: name, type, default, unit, help, choices, bounds, `advanced`, `from_signal`.
+- `Command`: name, pure function, params, number of signals, `signal_params`, category,
+  `read_only`, aliases.
+- `Session`: signals, results, configuration, history, display handler.

@@ -1,0 +1,31 @@
+---
+title: "Conventions"
+---
+
+## Code
+
+- PEP 8, line length 100, checked by `ruff` (`ruff check src tests`); type hints checked by
+  `mypy src`.
+- Everything in English: identifiers, comments, docstrings, messages, documentation.
+- Public functions, classes and methods have NumPy-style docstrings: description, Parameters
+  (type, default, unit), Returns, Raises, Notes (link to the algorithm page), Examples
+  (doctest-able). They are the single source of the API reference (quartodoc), of `/help` and
+  of `docs/ai/agent.md`.
+
+## Errors and warnings
+
+- Expected errors derive from `OnTheSignalError` (`UnitError`, `TimeRangeError`,
+  `ParameterError`, `FileFormatError`, `AnalysisError`): the console shows their message
+  without traceback. Messages say what is wrong and how to fix it.
+- Data-quality issues are result warnings (`result.warn`), not exceptions.
+- Library warnings use `OnTheSignalWarning` (shown in yellow in the console).
+
+## Logging
+
+`logging` only in the core (`logging.getLogger("onthesignal.<module>")`); the acquisition
+writes `acquisition.log` in its output folder.
+
+## Versions
+
+Semantic versioning (`src/onthesignal/_version.py`, `pyproject.toml`) and `CHANGELOG.md`
+updated with every change.

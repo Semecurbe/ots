@@ -1,0 +1,49 @@
+---
+title: "Measurement procedures"
+---
+
+## Digitizer self-noise and dynamic range
+
+1. Short the digitizer inputs (or terminate them with the source impedance of the sensor).
+2. Let the temperature stabilize; record at least 10 minutes for the 0–100 Hz band, and
+   several hours to look at long periods.
+3. Load the record, set the full scale if it is not 2²⁴ counts (`S1.full_scale = 2**23`).
+4. `noise(S1)` for the RMS, peak-to-peak and dynamic range in 0–100 Hz;
+   `noise(S1, remove_mains=True)` to exclude 50 Hz and its harmonics (the reported ENBW tells
+   how much band was removed); `noise_dsp(S1, cumulative=True)` to see which frequencies
+   dominate the noise.
+
+Pitfalls: a drifting offset inflates the RMS when the band starts at 0 Hz (use
+`detrend="linear"` or `fmin`); peak-to-peak values depend on the record length.
+
+## Sine tests (SINAD, ENOB, THD, SFDR)
+
+1. Use a low-distortion generator; its distortion and noise add to the digitizer's.
+2. Choose a frequency that is **not** a sub-multiple of 50 Hz (avoid 10, 12.5, 25 Hz) nor a
+   simple sub-multiple of the sampling rate — e.g. 7.3 Hz or 13.7 Hz.
+3. Set the amplitude close to full scale without clipping (−1 to −3 dBFS).
+4. Record several tens of periods (typically 1 to 10 minutes).
+5. `dynamic(S2)` gives every metric from one fit; give a noise record to add the dynamic
+   range: `dynamic(S2, noise=S1)`; `/dynamic S2 S1 report=true` writes the report.
+
+Pitfalls: when the SFDR is flagged *limited by the noise floor*, no real spur is visible and
+the value depends on the record length; harmonics below the noise floor make THD reflect the
+noise.
+
+## Comparison with the NLNM
+
+1. The signal must be a ground-motion quantity of the **whole chain**: set
+   `S.unit = "m/s"` (or `m`, `m/s**2`) and `S.sensitivity` in (m/s)/count, i.e. 1 /
+   (sensor sensitivity × digitizer counts per volt).
+2. Record long enough for the periods of interest (segments of the Welch PSD are N/8 long by
+   default, or `seg_duration`).
+3. `lnm(S3)`; the lower graph shows PSD − NLNM; negative values mean the noise is below the
+   low-noise model.
+
+To express the self-noise of a digitizer alone as ground motion, record it with inputs
+shorted and give it the sensitivity of the sensor it will be used with.
+
+## Timing between two digitizers
+
+Feed the same pulse (or PPS) to both, record, then `delay50(S1, S2, edge="rising")`. The delay
+is `t(S2) − t(S1)` with sub-sample resolution as long as edges are sampled by several points.

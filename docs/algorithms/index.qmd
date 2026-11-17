@@ -1,0 +1,46 @@
+---
+title: "Algorithms"
+---
+
+Each page documents one algorithm or family of algorithms with the same eight sections:
+
+1. **Objective** — what is measured, definition of the quantity;
+2. **Principle and equations** — notations and units;
+3. **Assumptions and validity** — stationarity, minimum duration, number of periods, signal level;
+4. **Numerical implementation** — steps, library functions, default values and why;
+5. **Limits, biases and uncertainty**;
+6. **Validation** — synthetic test cases, expected results, tolerances, with the automated
+   test that checks them;
+7. **Worked example** — executed at render time;
+8. **References**.
+
+| Page | Functions |
+|---|---|
+| [Preprocessing: study band and mains](preprocessing.qmd) | `band_limit`, `mains_lines`, detrending |
+| [Spectra: FFT, Welch, smoothing](spectra.qmd) | `amplitude_spectrum`, `welch_psd`, `rms_from_psd`, `octave_smooth` |
+| [Noise and dynamic range](noise.qmd) | `noise`, `noise_fft`, `noise_dsp` |
+| [Peterson noise models](lnm.qmd) | `lnm` |
+| [Sine fitting](sinefit.qmd) | `sinefit`, `fit4`, `fit_harmonics` |
+| [SINAD, ENOB, SNR, THD, SFDR](sine-metrics.qmd) | `sinad`, `sfdr`, `thd`, `dynamic` |
+| [Frequency, period, 50 % delay](measures.qmd) | `frequency`, `period`, `delay50` |
+| [Coherence and spectrogram](coherence-spectrogram.qmd) | `coherence`, `spectrogram` |
+| [Operations on signals](signal-operations.qmd) | `S1 + S2`, `k * S`, `slice`, `resample` |
+| [Real-time statistics](realtime.qmd) | `/rt`, `RealtimeMonitor` |
+
+## Common references
+
+- IEEE Std 1057-2017, *Standard for Digitizing Waveform Recorders*.
+- IEEE Std 1241-2010 (or later revision), *Standard for Terminology and Test Methods for
+  Analog-to-Digital Converters*.
+- Peterson, J. (1993). *Observations and modeling of seismic background noise*. USGS
+  Open-File Report 93-322.
+- Welch, P. D. (1967). The use of fast Fourier transform for the estimation of power
+  spectra. *IEEE Trans. Audio Electroacoust.*, 15(2), 70–73.
+- Harris, F. J. (1978). On the use of windows for harmonic analysis with the discrete Fourier
+  transform. *Proc. IEEE*, 66(1), 51–83.
+- Heinzel, G., Rüdiger, A., Schilling, R. (2002). *Spectrum and spectral density estimation by
+  the Discrete Fourier transform (DFT), including a comprehensive list of window functions and
+  some new flat-top windows*. Max-Planck-Institut für Gravitationsphysik.
+- McNamara, D. E., Buland, R. P. (2004). Ambient noise levels in the continental United
+  States. *BSSA*, 94(4), 1517–1527.
+- Bendat, J. S., Piersol, A. G. *Random Data: Analysis and Measurement Procedures*. Wiley.

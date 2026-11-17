@@ -1,0 +1,55 @@
+---
+title: "AI assistant"
+---
+
+The assistant understands requests such as "show me the noise of S3 and compare it to the
+LNM" and runs the corresponding onthesignal functions (here `lnm(S3)`), then interprets the
+results.
+
+## Configuration
+
+```toml
+# onthesignal.toml
+[ai]
+provider = "ollama"          # "anthropic" (Claude), "openai" (ChatGPT) or "ollama" (local)
+model = "<model name>"       # mandatory for openai and ollama
+base_url = ""                # e.g. http://localhost:11434 for a remote Ollama
+auto_execute = "read_only"   # "read_only": analyses run without asking; "none": always ask
+send_raw_data = false
+```
+
+API keys come from the environment only: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`. Install the
+clients with `pip install -e ".[ai]"`. `/model anthropic` or `/model ollama qwen2.5` changes
+the provider for the session.
+
+## Use
+
+| Command | Effect |
+|---|---|
+| `/ai` | toggle the AI mode: inputs go to the assistant (`/ai` again to go back) |
+| `/ai <question>` | one question |
+| `/init [folder]` | summarize every signal (and the miniSEED files of a folder) into `.onthesignal/init_context.md` |
+| `/context` | edit `context.md` (bench, digitizer settings, expected performance...) |
+| `/ai_script <name> "<description>"` | generate a script from the template; review it with `/edit_script` |
+| `/gen_ai_doc` | regenerate `docs/ai/agent.md` |
+
+## What the model receives
+
+- rules and conventions, and the list of functions with "when to use" phrases (from
+  `agent.md`);
+- your `context.md` (and `~/.config/onthesignal/context.md`), the `/init` summary;
+- the list of signals and results of the session;
+- tool results as **summaries** (values, warnings) — never the raw samples.
+
+## Safety
+
+- Analyses and inspection tools run without confirmation (`auto_execute = "read_only"`).
+- Running a script, writing a report, running Python code proposed by a model without tool
+  calling: always asked first, the code being shown.
+- No system command is ever run. Every AI action is logged in the session history.
+- With Ollama everything stays on your machine.
+
+## Limits
+
+The model interprets numbers it is given; it can still be wrong. Check its conclusions against
+the tables and figures, and review every generated script before running it.

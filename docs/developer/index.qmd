@@ -1,0 +1,14 @@
+---
+title: "Developer guide"
+---
+
+- [Architecture](architecture.qmd): layers, rules R1–R9, data model, registry
+- [Adding an analysis](add-analysis.qmd): the checklist
+- [Conventions](conventions.qmd): code, docstrings, errors, logging, versions
+- [Tests and validation](testing.qmd): running and extending the test suite
+- [Web phase](web-phase.qmd): what the phase-1 design already prepares
+
+Definition of done for any feature: code following R1–R9 and passing `ruff` and `mypy`;
+complete docstrings; unit and validation tests passing; algorithm page written (for any
+computation); user manual updated; `docs/ai/agent.md` regenerated (`/gen_ai_doc`);
+`CHANGELOG.md` updated. The documentation build is part of the checks.

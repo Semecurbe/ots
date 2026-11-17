@@ -1,0 +1,32 @@
+---
+title: "onthesignal"
+subtitle: "Signal processing for the characterization of seismic acquisition chains"
+---
+
+onthesignal measures what a seismic acquisition chain really does: digitizer self-noise and
+dynamic range, sine-wave performance (SINAD, ENOB, SFDR, THD, SNR), comparison with the
+Peterson noise models, time measurements, coherence and spectrograms. It runs as an
+interactive console in a Linux terminal and reads miniSEED and text files, or acquires data
+from SeedLink servers.
+
+This documentation has three parts:
+
+| Part | For | Content |
+|---|---|---|
+| [User manual](user/index.qmd) | everyone | installation, console, commands, measurement procedures, reports, AI assistant |
+| [Algorithms](algorithms/index.qmd) | metrologists, reviewers | definitions, equations, implementation, limits and validation of every computation |
+| [Developer guide](developer/index.qmd) | contributors | architecture, adding an analysis, conventions, tests |
+
+The [API reference](reference/index.qmd) is generated from the docstrings, and the
+[AI functions](ai/agent.md) page is the file given to the AI assistant.
+
+## Building this documentation
+
+```bash
+cd docs
+QUARTO_PYTHON=../.venv/bin/python ../.venv/bin/quartodoc build
+QUARTO_PYTHON=../.venv/bin/python quarto render
+```
+
+The pages of the *Algorithms* part contain Python cells executed at render time: their
+figures are always produced by the current code.
