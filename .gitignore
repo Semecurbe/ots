@@ -13,3 +13,7 @@ docs/_site/
 docs/.quarto/
 docs/reference/
 *.mseed.part
+
+# Editor swap files
+*.swp
+*.swo
