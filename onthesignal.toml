@@ -1,7 +1,8 @@
 # onthesignal.toml
 [ai]
-provider = "anthropic"          # "anthropic" (Claude), "openai" (ChatGPT) or "ollama" (local)
-model = "claude-sonnet-5-5"       # mandatory for openai and ollama
-base_url = ""                # e.g. http://localhost:11434 for a remote Ollama
-auto_execute = "read_only"   # "read_only": analyses run without asking; "none": always ask
+provider = "ollama"                  # "anthropic" (Claude), "openai" (ChatGPT, vLLM) or "ollama"
+model = "qwen3.8:27b-q8_0"           # Qwen3.8 27B, 8-bit (Ollama has no FP8 build); 30 GB
+base_url = "http://<gb10-address>:11434"   # replace with the GB10 host name or IP address
+context = 262144                     # tokens: the maximum Ollama allows for this model (256K)
+auto_execute = "read_only"           # "read_only": analyses run without asking; "none": always ask
 send_raw_data = false

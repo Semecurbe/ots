@@ -20,6 +20,10 @@ The project follows [Semantic Versioning](https://semver.org/).
   filtering method, ENBW, mains lines removed or not) are written above the spectrum, and
   each removed mains line is marked by a red dashed line. New `xscale` parameter for these
   analyses.
+- `[ai] context`: context length (tokens) sent to Ollama as `num_ctx` with every request.
+  The default context of Ollama (often 4096 tokens) is shorter than the assistant's prompt
+  (about 9 600 tokens) and Ollama truncates it silently. `/model` shows the Ollama server and
+  context. `ollama.md` explains how to use Ollama, on a GB10 or locally, instead of Claude.
 
 ### Changed
 

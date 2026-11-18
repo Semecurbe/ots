@@ -1003,6 +1003,8 @@ port = 18000
 [ai]
 provider = "ollama"        # "anthropic", "openai" or "ollama"
 model = "<model name>"
+base_url = ""              # serveur Ollama distant, ex. http://gb10:11434
+context = 0                # contexte Ollama en tokens (num_ctx) ; 0 = défaut du serveur
 auto_execute = "read_only"
 send_raw_data = false
 

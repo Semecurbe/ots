@@ -29,6 +29,7 @@ reconnect_delay = 5.0
 provider = "ollama"        # "anthropic", "openai" or "ollama"
 model = "<model name>"
 base_url = ""
+context = 0                # Ollama context in tokens (0 = server default)
 auto_execute = "read_only"
 send_raw_data = false
 

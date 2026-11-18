@@ -130,3 +130,40 @@ def test_message_conversions():
     assert o[3] == {"role": "tool", "tool_call_id": "t1", "content": "{}"}
     ol = OllamaProvider.convert("sys", transcript)
     assert ol[3]["tool_name"] == "noise"
+
+
+def test_ollama_context_is_sent_as_num_ctx(monkeypatch):
+    from types import SimpleNamespace
+
+    from onthesignal.ai.context import provider_label
+    from onthesignal.ai.providers import make_provider
+    from onthesignal.core.errors import ParameterError
+
+    sent = {}
+
+    class FakeClient:
+        def __init__(self, host=None):
+            sent["host"] = host
+
+        def chat(self, **kwargs):
+            sent.update(kwargs)
+            return SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None))
+
+    monkeypatch.setattr("ollama.Client", FakeClient)
+    config = Config({"ai": {"provider": "ollama", "model": "qwen3.8:27b-q8_0",
+                            "base_url": "http://gb10:11434", "context": "262_144"}})
+    provider = make_provider(config)
+    assert provider.chat("sys", [{"role": "user", "content": "hi"}], []).text == "ok"
+    assert sent["host"] == "http://gb10:11434" and sent["options"] == {"num_ctx": 262144}
+    assert provider_label(config) == (
+        "ollama (qwen3.8:27b-q8_0, http://gb10:11434, context 262144 tokens)"
+    )
+
+    config.set("ai.context", 0)  # server default: no options sent
+    sent.clear()
+    make_provider(config).chat("sys", [{"role": "user", "content": "hi"}], [])
+    assert "options" not in sent
+
+    config.set("ai.context", "a lot")
+    with pytest.raises(ParameterError, match="number of tokens"):
+        make_provider(config)

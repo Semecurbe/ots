@@ -212,7 +212,20 @@ def provider_label(config: object) -> str:
     getter = getattr(config, "get", None)
     if getter is None:
         return "?"
-    return f"{getter('ai.provider', 'ollama')} ({getter('ai.model', '') or 'default model'})"
+    provider = getter("ai.provider", "ollama")
+    details = [getter("ai.model", "") or "default model"]
+    if str(provider).lower() == "ollama":
+        if getter("ai.base_url", ""):
+            details.append(getter("ai.base_url"))
+        from .providers import context_tokens
+
+        try:
+            tokens = context_tokens(config)  # type: ignore[arg-type]
+        except Exception:  # an invalid value is reported when the provider is created
+            tokens = 0
+        if tokens:
+            details.append(f"context {tokens} tokens")
+    return f"{provider} ({', '.join(str(d) for d in details)})"
 
 
 __all__ = [

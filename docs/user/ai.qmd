@@ -13,7 +13,8 @@ results.
 [ai]
 provider = "ollama"          # "anthropic" (Claude), "openai" (ChatGPT) or "ollama" (local)
 model = "<model name>"       # mandatory for openai and ollama
-base_url = ""                # e.g. http://localhost:11434 for a remote Ollama
+base_url = ""                # e.g. http://gb10:11434 for a remote Ollama
+context = 0                  # Ollama context in tokens (num_ctx); 0 = server default
 auto_execute = "read_only"   # "read_only": analyses run without asking; "none": always ask
 send_raw_data = false
 ```
@@ -21,6 +22,13 @@ send_raw_data = false
 API keys come from the environment only: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`. Install the
 clients with `pip install -e ".[ai]"`. `/model anthropic` or `/model ollama qwen2.5` changes
 the provider for the session.
+
+With Ollama, set `context` to at least `16384`. The system prompt and the tool descriptions
+take about 9 600 tokens, while the Ollama default is often 4096 tokens: Ollama then truncates
+the prompt without any error, and the model calls the tools with wrong arguments. The maximum
+is the context the model was trained for (262 144 tokens for Qwen3.8); a larger value is
+silently reduced to it. The `ollama.md` file at the root of the repository describes the
+setup with a GB10 and with small local models.
 
 ## Use
 

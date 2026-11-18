@@ -36,6 +36,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "provider": "ollama",
         "model": "",
         "base_url": "",
+        "context": 0,
         "auto_execute": "read_only",
         "send_raw_data": False,
     },

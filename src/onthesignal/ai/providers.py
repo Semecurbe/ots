@@ -158,9 +158,14 @@ class OllamaProvider:
     name = "ollama"
     supports_tools = True
 
-    def __init__(self, model: str, base_url: str = "") -> None:
+    def __init__(self, model: str, base_url: str = "", context: int = 0) -> None:
+        """``context`` is sent as ``num_ctx`` (tokens); 0 keeps the server default.
+
+        Ollama caps it at the context length the model was trained for, with only a warning in
+        the server log.
+        """
         ollama = _require("ollama")
-        self.model = model
+        self.model, self.context = model, context
         self.client = ollama.Client(host=base_url or None)
 
     @staticmethod
@@ -181,7 +186,9 @@ class OllamaProvider:
         return messages
 
     def chat(self, system: str, transcript: list[dict], tools: list[ToolSpec]) -> Reply:
-        kwargs = {"tools": _openai_tools(tools)} if tools else {}
+        kwargs: dict[str, Any] = {"tools": _openai_tools(tools)} if tools else {}
+        if self.context:
+            kwargs["options"] = {"num_ctx": self.context}
         resp = self.client.chat(model=self.model, messages=self.convert(system, transcript),
                                 **kwargs)
         msg = resp.message
@@ -194,7 +201,7 @@ PROVIDERS = {"anthropic": AnthropicProvider, "openai": OpenAIProvider, "ollama":
 
 
 def make_provider(config: Config) -> LLMProvider:
-    """Provider configured in ``[ai]`` (``provider``, ``model``, ``base_url``)."""
+    """Provider configured in ``[ai]`` (``provider``, ``model``, ``base_url``, ``context``)."""
     name = str(config.get("ai.provider", "ollama")).lower()
     if name not in PROVIDERS:
         raise ParameterError(f"Unknown AI provider {name!r} (anthropic, openai or ollama)")
@@ -204,4 +211,19 @@ def make_provider(config: Config) -> LLMProvider:
             f"No model configured for {name}: set [ai] model in onthesignal.toml or use "
             f"/model {name} <model>"
         )
-    return PROVIDERS[name](model, config.get("ai.base_url", ""))
+    base_url = config.get("ai.base_url", "")
+    if name == "ollama":
+        return OllamaProvider(model, base_url, context=context_tokens(config))
+    return PROVIDERS[name](model, base_url)
+
+
+def context_tokens(config: Config) -> int:
+    """``[ai] context`` as a number of tokens (0 = server default)."""
+    value = config.get("ai.context", 0) or 0
+    try:
+        tokens = int(str(value).replace("_", ""))
+    except ValueError:
+        raise ParameterError(f"[ai] context must be a number of tokens, got {value!r}") from None
+    if tokens < 0:
+        raise ParameterError(f"[ai] context must be positive, got {tokens}")
+    return tokens
