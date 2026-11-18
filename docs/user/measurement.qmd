@@ -30,6 +30,27 @@ Pitfalls: when the SFDR is flagged *limited by the noise floor*, no real spur is
 the value depends on the record length; harmonics below the noise floor make THD reflect the
 noise.
 
+### Reading the figures
+
+The spectrum of the `sinad`, `sfdr`, `thd` and `dynamic` figures states the computation
+conditions above the plot, for example:
+
+```text
+Conditions: residual band 0–100 Hz (ideal FFT mask), ENBW 98.5 Hz
+50 Hz and harmonics removed (50, 100 Hz, ±0.5 Hz)
+```
+
+- The **study band** is shaded; the ENBW is the noise bandwidth actually integrated.
+- With `remove_mains=true`, each removed mains line is marked by a **red dashed line** (for
+  `sfdr` the lines are excluded from the spur search). The line itself stays visible on the
+  spectrum: it is drawn from the raw residual, but it does not count in the result. Without
+  removal, the conditions read `50 Hz and harmonics not removed`.
+- For `thd`, the conditions give the harmonic orders used and, with `remove_mains=true`, recall
+  that harmonics falling on a mains line are excluded.
+- The **frequency axis is logarithmic** by default; `xscale="linear"` gives a linear axis
+  (`/sinad S2 xscale=linear`). On a log axis the results box sits in the upper left corner,
+  over the low frequencies, so that it does not hide the mains lines and the harmonics.
+
 ## Comparison with the NLNM
 
 1. The signal must be a ground-motion quantity of the **whole chain**: set
@@ -38,7 +59,7 @@ noise.
 2. Record long enough for the periods of interest (segments of the Welch PSD are N/8 long by
    default, or `seg_duration`).
 3. `lnm(S3)`; the lower graph shows PSD − NLNM; negative values mean the noise is below the
-   low-noise model.
+   low-noise model. The abscissa is the frequency (`lnm(S3, x="period")` for the period).
 
 To express the self-noise of a digitizer alone as ground motion, record it with inputs
 shorted and give it the sensitivity of the sensor it will be used with.

@@ -7,11 +7,40 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Test signals from an ideal N-bit digitizer: `make_sine` (frequency, amplitude as a ratio of
+  full scale or in dBFS, number of bits, added noise, harmonics, mains line) and
+  `make_noise` (white, pink or brown noise of given RMS), with recorded seeds. Available in
+  Python, as `/make_sine` and `/make_noise` console commands (forms) and as AI tools.
 - `Signal.title`: human-readable title, set by default to the file name without its
   extension when a file is loaded (`title=` option of `load` / `/load` to choose it, one per
   channel for text files). It is shown in result and figure titles (`S1 · title (NSLC)`, also
   available as `Signal.label`), in `list_sig()`, `S.print()`, reports, the AI context and
   text/CSV export headers, and kept by derived signals.
+- Sine figures (`sinad`, `sfdr`, `thd`, `dynamic`): the computation conditions (study band,
+  filtering method, ENBW, mains lines removed or not) are written above the spectrum, and
+  each removed mains line is marked by a red dashed line. New `xscale` parameter for these
+  analyses.
+
+### Changed
+
+- `lnm`: the NHNM is no longer shown by default (`show_nhnm=True` to show it).
+- `lnm`: the abscissa is the frequency by default (`x="period"` for the period); the legend
+  sits above the PSD plot and the results box gives the frequency of the maximum difference
+  (new value `freq_max`).
+- The frequency axis of the sine spectra is logarithmic by default (`xscale="linear"` for
+  the former display); on a log axis the results box moves to the upper left corner.
+- Removed mains lines are drawn as red dashed lines in every figure (noise spectra included),
+  instead of grey dotted lines.
+
+### Fixed
+
+- `lnm`: the Peterson models were interpolated on periods sorted in decreasing order (as
+  returned by ObsPy), which `numpy.interp` does not support. The NHNM curve was wrong (a
+  straight line in displacement) and so were PSD − NLNM and every value derived from it
+  (minimum, maximum, mean, period of the maximum, share below the NLNM). The NLNM curve
+  itself was right. Results of `lnm` computed before this fix must be recomputed.
+- `sfdr`: the mains lines excluded from the spur search now honour `mains_harmonics` and
+  `fmin`, like the band limitation of the other analyses.
 
 ## [0.1.0]
 

@@ -18,6 +18,8 @@ MUTED = "#898781"
 GRID = "#e1e0d9"
 AXIS = "#c3c2b7"
 NEUTRAL_WASH = "#f0efec"
+#: Frequencies removed from (or excluded by) a computation, e.g. the mains lines.
+REMOVED = SERIES[7]
 
 LINE_W = 1.5
 THIN_W = 0.8
@@ -90,9 +92,26 @@ def shade_band(ax: Any, band: list[float] | None) -> None:
 
 
 def mark_lines(ax: Any, freqs: Iterable[float], label: str = "mains (removed)") -> None:
-    """Thin vertical lines at the given frequencies (e.g. removed mains lines)."""
+    """Red dashed vertical lines at frequencies removed from the computation (mains lines)."""
     for i, f in enumerate(freqs):
-        ax.axvline(f, color=MUTED, lw=0.7, ls=":", zorder=1, label=label if i == 0 else None)
+        ax.axvline(f, color=REMOVED, lw=1.0, ls="--", zorder=1.5,
+                   label=label if i == 0 else None)
+
+
+def frequency_axis(ax: Any, scale: str, x_min: float, x_max: float) -> None:
+    """Frequency axis on ``log`` or ``linear`` scale; log ticks read 0.1, 1, 10, 100."""
+    ax.set_xscale(scale)
+    if scale == "log":
+        from matplotlib.ticker import FuncFormatter
+
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:g}"))
+    ax.set_xlim(x_min, x_max)
+
+
+def conditions_title(ax: Any, text: str) -> None:
+    """Computation conditions written above an axes, in secondary ink."""
+    if text:
+        ax.set_title(text, loc="left", fontsize=8, color=INK2, pad=4)
 
 
 def finish(fig: Any, title: str, result: Any = None, note: str | None = None) -> None:

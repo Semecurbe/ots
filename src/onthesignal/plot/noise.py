@@ -45,7 +45,8 @@ def noise_lines(result: Any) -> list[str]:
 
 def _spectral_axes(ax: Any, result: Any, curve: Any) -> None:
     shade_band(ax, result.extra.get("band"))
-    mark_lines(ax, result.extra.get("mains_lines", []))
+    mark_lines(ax, result.extra.get("mains_lines", []),
+               label=f"{result.params.get('mains_freq', 50.0):g} Hz and harmonics (removed)")
     ax.set_xscale(curve.xscale)
     ax.set_yscale(curve.yscale)
     ax.set_xlabel(axis_label(curve.x_label, curve.x_unit))

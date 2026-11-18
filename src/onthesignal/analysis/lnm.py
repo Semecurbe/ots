@@ -22,8 +22,8 @@ LNM_PARAMS = (
     *WELCH_PARAMS,
     Param("smoothing", int, 8, nullable=True, min=1,
           help="PSD smoothing in 1/n octave bands (none = no smoothing)"),
-    Param("show_nhnm", bool, True, help="Also show the high-noise model (NHNM)"),
-    Param("x", str, "period", choices=("period", "freq"), help="Abscissa: period or frequency"),
+    Param("show_nhnm", bool, False, help="Also show the high-noise model (NHNM)"),
+    Param("x", str, "freq", choices=("freq", "period"), help="Abscissa: frequency or period"),
     *TIME_PARAMS,
 )
 
@@ -42,15 +42,23 @@ def peterson_models(quantity: str) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     -------
     periods, nlnm, nhnm
         Periods in seconds (increasing) and model levels in dB.
+
+    Notes
+    -----
+    ObsPy returns the models with **decreasing** periods; they are sorted here because
+    ``numpy.interp`` silently returns wrong values when the abscissa is not increasing.
     """
     from obspy.signal.spectral_estimation import get_nhnm, get_nlnm
 
-    periods, nlnm = get_nlnm()
-    periods_h, nhnm = get_nhnm()
-    nhnm = np.interp(np.log10(periods), np.log10(periods_h), nhnm)
+    periods, nlnm = (np.asarray(a, dtype=float) for a in get_nlnm())
+    order = np.argsort(periods)
+    periods, nlnm = periods[order], nlnm[order]
+    periods_h, nhnm_h = (np.asarray(a, dtype=float) for a in get_nhnm())
+    order_h = np.argsort(periods_h)
+    nhnm = np.interp(np.log10(periods), np.log10(periods_h[order_h]), nhnm_h[order_h])
     power = {"acceleration": 0, "velocity": 2, "displacement": 4}[quantity]
     correction = 10.0 * power * np.log10(2.0 * np.pi / periods)
-    return np.asarray(periods), np.asarray(nlnm) - correction, np.asarray(nhnm) - correction
+    return periods, nlnm - correction, nhnm - correction
 
 
 @register("lnm", LNM_PARAMS, category="noise",
@@ -87,7 +95,8 @@ def compute_lnm(signal: Signal, **params: Any) -> Result:
     ps_db = 10.0 * np.log10(np.maximum(ps, 1e-300))
 
     periods, nlnm, nhnm = peterson_models(quantity)
-    f_model = 1.0 / periods
+    # Model curves with increasing frequency (periods are increasing).
+    f_model, nlnm_f, nhnm_f = 1.0 / periods[::-1], nlnm[::-1], nhnm[::-1]
     in_range = (fc >= MODEL_FMIN) & (fc <= MODEL_FMAX)
     if not np.any(in_range):
         raise AnalysisError(
@@ -108,6 +117,7 @@ def compute_lnm(signal: Signal, **params: Any) -> Result:
     r.add("diff_max", float(np.max(diff)), "dB", "Maximum PSD − NLNM")
     r.add("diff_mean", float(np.mean(diff)), "dB", "Mean PSD − NLNM")
     r.add("period_max", float(1.0 / f_diff[i_max]), "s", "Period of the maximum difference")
+    r.add("freq_max", float(f_diff[i_max]), "Hz", "Frequency of the maximum difference")
     r.add("below_nlnm", float(100.0 * np.mean(diff < 0)), "%", "Share of the range below NLNM")
     r.add("range", [float(f_diff[0]), float(f_diff[-1])], "Hz", "Compared frequency range",
           kind="range")
@@ -120,11 +130,11 @@ def compute_lnm(signal: Signal, **params: Any) -> Result:
         fc, ps_db, label=f"PSD (1/{p['smoothing']} octave)" if p["smoothing"] else "PSD",
         x_label="Frequency", x_unit="Hz", y_label="PSD", y_unit=y_unit, xscale="log",
     )
-    r.curves["nlnm"] = Curve(f_model, nlnm, label="NLNM", x_label="Frequency", x_unit="Hz",
+    r.curves["nlnm"] = Curve(f_model, nlnm_f, label="NLNM", x_label="Frequency", x_unit="Hz",
                              y_label="PSD", y_unit=y_unit, xscale="log")
     if p["show_nhnm"]:
-        r.curves["nhnm"] = Curve(f_model, nhnm, label="NHNM", x_label="Frequency", x_unit="Hz",
-                                 y_label="PSD", y_unit=y_unit, xscale="log")
+        r.curves["nhnm"] = Curve(f_model, nhnm_f, label="NHNM", x_label="Frequency",
+                                 x_unit="Hz", y_label="PSD", y_unit=y_unit, xscale="log")
     r.curves["diff"] = Curve(f_diff, diff, label="PSD − NLNM", x_label="Frequency", x_unit="Hz",
                              y_label="Difference", y_unit="dB", xscale="log")
     r.extra["x"] = p["x"]

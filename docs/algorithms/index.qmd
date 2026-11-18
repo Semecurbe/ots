@@ -25,6 +25,7 @@ Each page documents one algorithm or family of algorithms with the same eight se
 | [Frequency, period, 50 % delay](measures.qmd) | `frequency`, `period`, `delay50` |
 | [Coherence and spectrogram](coherence-spectrogram.qmd) | `coherence`, `spectrogram` |
 | [Operations on signals](signal-operations.qmd) | `S1 + S2`, `k * S`, `slice`, `resample` |
+| [Test signals](test-signals.qmd) | `make_sine`, `make_noise` |
 | [Real-time statistics](realtime.qmd) | `/rt`, `RealtimeMonitor` |
 
 ## Common references

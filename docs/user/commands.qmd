@@ -45,6 +45,8 @@ for cmd in sorted(commands(), key=lambda c: (c.category, c.name)):
 | Function | Role |
 |---|---|
 | `load(path, ...)` | load a file into the session |
+| `make_sine(frequency, ratio, bits, ...)` | test sine from an ideal N-bit digitizer ([test signals](test-signals.qmd)) |
+| `make_noise(rms, color, bits, ...)` | random test noise from an ideal N-bit digitizer |
 | `list_sig()`, `list_res()` | list signals, results |
 | `show(S)` / `S.show()` | plot a time series |
 | `rename_sig(old, new)`, `rm_sig(name)` | manage signals |

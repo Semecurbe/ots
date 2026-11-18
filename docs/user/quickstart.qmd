@@ -38,6 +38,7 @@ S1.show()                  # time series (matplotlib window)
 S2 = 2 * S1                # new signal, amplitude doubled
 S4 = S1 + S3               # sum on the common time window (interpolated if needed)
 S5 = S1.slice(10, 70)      # seconds 10 to 70
+S6 = make_sine(7.3, ratio=0.9, bits=24)   # test sine (see "Test signals")
 S1.lnm()                   # same as lnm(S1)
 list_sig()                 # table of the signals
 ```

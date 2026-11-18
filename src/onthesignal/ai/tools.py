@@ -7,6 +7,7 @@ The model only receives summaries (values, warnings), never the raw samples.
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -85,6 +86,11 @@ def build_tools(session: Session) -> dict[str, Tool]:
         loaded = loaded if isinstance(loaded, list) else [loaded]
         return [{"name": s.name, "title": s.title, "id": s.id} for s in loaded]
 
+    def make_signal(args: dict, func: Callable[..., Any]) -> Any:
+        args = dict(args)
+        sig = func(name=args.pop("name", None), **args)
+        return {"name": sig.name, "title": sig.title, "id": sig.id}
+
     def run_script(args: dict) -> Any:
         from ..scripts import run_script as run
 
@@ -129,6 +135,20 @@ def build_tools(session: Session) -> dict[str, Tool]:
                                 "last": {"type": "integer", "description": "number of results"}}},
          make_report, True),
     ]
+    from ..synthetic import NOISE_PARAMS, SINE_PARAMS
+
+    for tool_name, decl, func, desc in (
+        ("make_sine", SINE_PARAMS, api.make_sine,
+         "Create a test sine digitized by an ideal N-bit converter (amplitude as a fraction "
+         "of full scale or in dBFS, optional noise, harmonics and mains line)"),
+        ("make_noise", NOISE_PARAMS, api.make_noise,
+         "Create a random test noise (white, pink or brown) digitized by an ideal N-bit "
+         "converter"),
+    ):
+        props = {p.name: p.json_schema() for p in decl}
+        props["name"] = {"type": "string", "description": "Session name (default: next S name)"}
+        extra.append((tool_name, desc, {**obj, "properties": props},
+                      functools.partial(make_signal, func=func), False))
     for name, desc, schema, func, confirm in extra:
         tools[name] = Tool(ToolSpec(name, desc, schema), func, confirm)
     return tools

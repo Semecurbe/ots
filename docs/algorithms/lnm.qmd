@@ -4,9 +4,10 @@ title: "Comparison with the Peterson noise models"
 
 ## Objective
 
-Compare the PSD of a record with the **New Low Noise Model** (NLNM, the "gabarit") and the
-New High Noise Model (NHNM) of Peterson (1993), in the quantity matching the signal unit:
-displacement (`m`), velocity (`m/s`) or acceleration (`m/s**2`).
+Compare the PSD of a record with the **New Low Noise Model** (NLNM, the "gabarit") of
+Peterson (1993), in the quantity matching the signal unit: displacement (`m`), velocity
+(`m/s`) or acceleration (`m/s**2`). The New High Noise Model (NHNM) can be added to the
+figure with `show_nhnm=True` (hidden by default).
 
 ## Principle and equations
 
@@ -41,9 +42,14 @@ is evaluated over the frequencies common to the PSD and the model.
 `analysis.lnm.compute_lnm`: `welch_psd` (Hann, segments of the largest power of two ≤ N/8,
 50 % overlap), `octave_smooth` (1/n octave, `smoothing`), models from
 `obspy.signal.spectral_estimation.get_nlnm` / `get_nhnm`, converted with the formulas above
-and interpolated linearly in $\log_{10} T$. The figure shows the raw and smoothed PSD with
-the models on top, and $\Delta$ below (zones under the NLNM shaded); the abscissa is the period
-by default (`x="freq"` for frequency).
+and interpolated linearly in $\log_{10} T$. ObsPy returns the models with **decreasing**
+periods: they are sorted before interpolation, because `numpy.interp` silently returns wrong
+values on a decreasing abscissa. The figure shows the raw and smoothed PSD with the models on
+top, and $\Delta$ below (zones under the NLNM shaded); the abscissa is the frequency by
+default (`x="period"` for the period).
+
+In displacement the NLNM decreases with frequency (it increases with period): dividing an
+acceleration PSD by $(2\pi f)^4$ lowers the high frequencies by 40 dB per decade.
 
 ## Limits, biases and uncertainty
 
@@ -57,6 +63,8 @@ by default (`x="freq"` for frequency).
 |---|---|---|---|
 | White acceleration noise σ, fs | PSD = $2\sigma^2/f_s$ | ± 0.5 dB | `test_v09_lnm_levels` |
 | Model conversions | $-20\log_{10}\omega$, $-40\log_{10}\omega$ | < 0.01 dB | `test_v09_lnm_levels` |
+| NLNM and NHNM at 0.1, 1, 5, 10, 100, 300 s | Peterson tables $A + B\log_{10}T$ | ± 0.2 dB | `test_peterson_models_match_the_published_tables` |
+| $\Delta$ for white displacement noise | PSD − NLNM interpolated at each frequency | < 1e-9 dB | `test_lnm_difference_follows_the_model` |
 | Signal in V | explicit unit error | — | `test_lnm_requires_motion_unit` |
 
 ## Worked example

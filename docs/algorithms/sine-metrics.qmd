@@ -104,6 +104,10 @@ print(r.to_text())
 r.plot()
 ```
 
+The figure recalls the computation conditions above the spectrum (study band, filtering
+method, ENBW, mains lines removed or not) and marks each removed mains line with a red dashed
+line; the frequency axis is logarithmic unless `xscale="linear"`.
+
 ## References
 
 - IEEE Std 1241-2010 (SINAD, ENOB, THD, SFDR definitions); IEEE Std 1057-2017 (sine fit).

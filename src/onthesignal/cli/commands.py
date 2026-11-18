@@ -16,6 +16,7 @@ from ..core.errors import ParameterError
 from ..core.params import Param, resolve_params
 from ..core.registry import Command, commands, get_command
 from ..io import GAP_POLICIES, detect_format
+from ..synthetic import NOISE_PARAMS, SINE_PARAMS
 
 if TYPE_CHECKING:
     from .console import OnTheSignalConsole
@@ -168,6 +169,44 @@ def cmd_load(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str], fl
     loaded = signals if isinstance(signals, list) else [signals]
     console.display.info(f"Loaded {len(loaded)} signal(s): "
                          + ", ".join(f"{s.name} ({s.id})" for s in loaded))
+
+
+def _make_signal(console: OnTheSignalConsole, func: Callable[..., Any],
+                 decl: tuple[Param, ...], pos: list[str], kv: dict[str, str],
+                 flags: set[str]) -> None:
+    """Create a test signal: positional values follow the declaration order."""
+    names = [p.name for p in decl]
+    if len(pos) > len(names):
+        raise ParameterError(f"Too many values: {' '.join(pos)}")
+    given = {**dict(zip(names, pos, strict=False)), **kv}
+    name = given.pop("name", None)
+    by_name = {p.name: p for p in decl}
+    unknown = set(given) - set(by_name)
+    if unknown:
+        raise ParameterError(f"Unknown parameter(s): {', '.join(sorted(unknown))}. "
+                             f"Valid parameters: {', '.join(names)}")
+    params = {k: by_name[k].coerce(v) for k, v in given.items()}
+    if not given and "defaults" not in flags and console.forms:
+        from .forms import ask_params
+
+        params = ask_params(decl, {}, console.ask)
+    sig = func(name=name, **params)
+    console.sync()
+    console.display.info(f"Created {sig.name}: {sig.title}")
+
+
+@slash("make_sine", "Create a test sine (ideal N-bit digitizer)",
+       "/make_sine [frequency] [ratio] [bits] [key=value...]", "Signals")
+def cmd_make_sine(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str],
+                  flags: set[str]) -> None:
+    _make_signal(console, api.make_sine, SINE_PARAMS, pos, kv, flags)
+
+
+@slash("make_noise", "Create a random test noise (ideal N-bit digitizer)",
+       "/make_noise [rms] [color] [bits] [key=value...]", "Signals")
+def cmd_make_noise(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str],
+                   flags: set[str]) -> None:
+    _make_signal(console, api.make_noise, NOISE_PARAMS, pos, kv, flags)
 
 
 @slash("list", "List the signals of the session", "/list", "Signals")

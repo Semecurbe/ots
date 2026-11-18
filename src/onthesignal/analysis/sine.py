@@ -20,6 +20,7 @@ from ..processing.params import (
     FULL_SCALE_PARAM,
     TIME_PARAMS,
     UNITS_PARAM,
+    XSCALE_PARAM,
     window_param,
 )
 from ..processing.spectral import amplitude_spectrum, lobe_half_width, make_window, minmax_envelope
@@ -40,7 +41,8 @@ FIT_PARAMS = (
     Param("tol", float, 1e-9, min=0.0, advanced=True, help="Convergence threshold on |Δω/ω|"),
     Param("maxiter", int, 100, min=1, advanced=True, help="Maximum number of iterations"),
 )
-SINAD_PARAMS = (*BAND_PARAMS, FULL_SCALE_PARAM, *FIT_PARAMS, UNITS_PARAM, *TIME_PARAMS)
+SINAD_PARAMS = (*BAND_PARAMS, FULL_SCALE_PARAM, *FIT_PARAMS, UNITS_PARAM, XSCALE_PARAM,
+                *TIME_PARAMS)
 SFDR_EXTRA = (
     window_param("blackmanharris"),
     Param("exclude_f0", float, None, nullable=True, unit="Hz", min=0.0, advanced=True,
@@ -113,11 +115,11 @@ def _time_curves(r: Result, sig: Signal, fit: SineFit) -> None:
                                  y_label="Residual", y_unit="counts")
 
 
-def _spectrum_curve(x: np.ndarray, fs: float, full_scale: float, window: str, label: str) -> Curve:
-    f, a, _ = amplitude_spectrum(x - np.mean(x), fs, window, "dbfs", full_scale)
+def _spectrum_curve(x: np.ndarray, fs: float, p: dict, window: str, label: str) -> Curve:
+    f, a, _ = amplitude_spectrum(x - np.mean(x), fs, window, "dbfs", p["full_scale"])
     keep = f > 0
     return Curve(f[keep], a[keep], label=label, x_label="Frequency", x_unit="Hz",
-                 y_label="Amplitude", y_unit="dBFS", xscale="linear")
+                 y_label="Amplitude", y_unit="dBFS", xscale=p["xscale"])
 
 
 # ---------------------------------------------------------------------------------- parts
@@ -153,9 +155,12 @@ def _sfdr_part(r: Result, sig: Signal, fit: SineFit, p: dict) -> None:
     fmax = min(p["fmax"], sig.nyquist)
     cand = (f >= max(p["fmin"], (half + 1) * df)) & (f <= fmax)
     cand &= np.abs(f - fit.frequency) > excl
-    lines = mains_lines(p["mains_freq"], fmax) if p["remove_mains"] else []
+    lines = (mains_lines(p["mains_freq"], fmax, p["mains_harmonics"], p["fmin"])
+             if p["remove_mains"] else [])
     for m in lines:
         cand &= np.abs(f - m) > p["mains_width"] / 2.0
+    r.extra.setdefault("mains_lines", lines)
+    r.extra.setdefault("mains_width", p["mains_width"])
     if not np.any(cand):
         r.warn("No frequency left to search for spurs in the study band")
         return
@@ -193,7 +198,7 @@ def _sfdr_part(r: Result, sig: Signal, fit: SineFit, p: dict) -> None:
             f"floor (a noise maximum is expected around {fmt_num(noise_max, 3)} dB): the SFDR "
             "is limited by the noise floor, which depends on N and the window"
         )
-    r.curves["residual_spectrum"] = _spectrum_curve(res, fs, p["full_scale"], p["window"],
+    r.curves["residual_spectrum"] = _spectrum_curve(res, fs, p, p["window"],
                                                     "residual spectrum")
     r.extra.update({"spur": [f_spur, _db(a_spur / (p["full_scale"] / 2.0))],
                     "fundamental": [fit.frequency, _db(fit.amplitude / (p["full_scale"] / 2.0))]})
@@ -258,9 +263,8 @@ def compute_sinad(signal: Signal, **params: Any) -> Result:
     r.title = "SINAD"
     _sinad_part(r, sig, fit, p)
     _time_curves(r, sig, fit)
-    r.curves["residual_spectrum"] = _spectrum_curve(fit.residual, sig.sampling_rate,
-                                                    p["full_scale"], "blackmanharris",
-                                                    "residual spectrum")
+    r.curves["residual_spectrum"] = _spectrum_curve(fit.residual, sig.sampling_rate, p,
+                                                    "blackmanharris", "residual spectrum")
     return r
 
 
@@ -276,8 +280,8 @@ def compute_sfdr(signal: Signal, **params: Any) -> Result:
     p = resolve_params(SFDR_PARAMS, params, signal, command="sfdr")
     sig, fit, r = _fit(signal, p, "sfdr")
     _sfdr_part(r, sig, fit, p)
-    r.curves["spectrum"] = _spectrum_curve(sig.data, sig.sampling_rate, p["full_scale"],
-                                           p["window"], "signal spectrum")
+    r.curves["spectrum"] = _spectrum_curve(sig.data, sig.sampling_rate, p, p["window"],
+                                           "signal spectrum")
     r.title = (f"SFDR — {signal_label(sig)} · f0 {fmt_num(fit.frequency, 6)} Hz · band "
                f"{fmt_num(p['fmin'])}–{fmt_num(min(p['fmax'], sig.nyquist))} Hz")
     r.extra["band"] = [p["fmin"], min(p["fmax"], sig.nyquist)]
@@ -291,8 +295,8 @@ def compute_thd(signal: Signal, **params: Any) -> Result:
     p = resolve_params(THD_PARAMS, params, signal, command="thd")
     sig, fit, r = _fit(signal, p, "thd")
     _thd_part(r, sig, fit, p)
-    r.curves["spectrum"] = _spectrum_curve(sig.data, sig.sampling_rate, p["full_scale"],
-                                           "blackmanharris", "signal spectrum")
+    r.curves["spectrum"] = _spectrum_curve(sig.data, sig.sampling_rate, p, "blackmanharris",
+                                           "signal spectrum")
     r.title = (f"THD — {signal_label(sig)} · f0 {fmt_num(fit.frequency, 6)} Hz · "
                f"H2–H{p['n_harmonics']}")
     r.extra["band"] = [p["fmin"], min(p["fmax"], sig.nyquist)]
@@ -342,7 +346,7 @@ def compute_dynamic(signal: Signal, **params: Any) -> Result:
         r.signals.append(noise_sig.identity())
 
     _time_curves(r, sig, fit)
-    r.curves["spectrum"] = _spectrum_curve(sig.data, sig.sampling_rate, p["full_scale"],
-                                           p["window"], "signal spectrum")
+    r.curves["spectrum"] = _spectrum_curve(sig.data, sig.sampling_rate, p, p["window"],
+                                           "signal spectrum")
     r.extra["band"] = [p["fmin"], min(p["fmax"], sig.nyquist)]
     return r

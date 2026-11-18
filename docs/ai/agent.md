@@ -60,12 +60,12 @@ Welch PSD of the signal in physical units compared with the Peterson NLNM.
 | `overlap` | float | 0.5 |  | Segment overlap ratio (advanced) |
 | `average` | str | mean |  | Averaging of the Welch periodograms (advanced) |
 | `smoothing` | int | 8 |  | PSD smoothing in 1/n octave bands (none = no smoothing) |
-| `show_nhnm` | bool | true |  | Also show the high-noise model (NHNM) |
-| `x` | str | period |  | Abscissa: period or frequency |
+| `show_nhnm` | bool | false |  | Also show the high-noise model (NHNM) |
+| `x` | str | freq |  | Abscissa: frequency or period |
 | `t_start` | object | none |  | Start of the analysed window (UTC time or seconds from start) (advanced) |
 | `t_end` | object | none |  | End of the analysed window (UTC time or seconds from start) (advanced) |
 
-Example: `lnm(S, smoothing=8, show_nhnm=true, x=period)`
+Example: `lnm(S, smoothing=8, show_nhnm=false, x=freq)`
 
 ## `noise(S, ...)` — Noise RMS, peak-to-peak, mean and dynamic range in the study band
 When to use: “measure the noise of a record without signal (inputs shorted)”; “noise RMS, peak-to-peak, mean, dynamic range in a band”.
@@ -168,6 +168,7 @@ Dynamic analysis: SINAD, ENOB, SFDR, THD and SNR computed from one sine fit.
 | `tol` | float | 1e-09 |  | Convergence threshold on |Δω/ω| (advanced) |
 | `maxiter` | int | 100 |  | Maximum number of iterations (advanced) |
 | `units` | str | physical |  | Display units (advanced) |
+| `xscale` | str | log |  | Frequency axis scale (advanced) |
 | `t_start` | object | none |  | Start of the analysed window (UTC time or seconds from start) (advanced) |
 | `t_end` | object | none |  | End of the analysed window (UTC time or seconds from start) (advanced) |
 | `n_harmonics` | int | 10 |  | Highest harmonic order (H2 to Hn) |
@@ -200,6 +201,7 @@ SFDR: ratio between the fundamental and the largest spur in the study band.
 | `tol` | float | 1e-09 |  | Convergence threshold on |Δω/ω| (advanced) |
 | `maxiter` | int | 100 |  | Maximum number of iterations (advanced) |
 | `units` | str | physical |  | Display units (advanced) |
+| `xscale` | str | log |  | Frequency axis scale (advanced) |
 | `t_start` | object | none |  | Start of the analysed window (UTC time or seconds from start) (advanced) |
 | `t_end` | object | none |  | End of the analysed window (UTC time or seconds from start) (advanced) |
 | `window` | str | blackmanharris |  | Spectral window (hann, blackmanharris, flattop, boxcar...) (advanced) |
@@ -229,6 +231,7 @@ SINAD and ENOB.
 | `tol` | float | 1e-09 |  | Convergence threshold on |Δω/ω| (advanced) |
 | `maxiter` | int | 100 |  | Maximum number of iterations (advanced) |
 | `units` | str | physical |  | Display units (advanced) |
+| `xscale` | str | log |  | Frequency axis scale (advanced) |
 | `t_start` | object | none |  | Start of the analysed window (UTC time or seconds from start) (advanced) |
 | `t_end` | object | none |  | End of the analysed window (UTC time or seconds from start) (advanced) |
 
@@ -271,6 +274,7 @@ THD = sqrt(sum of A_k², k = 2..n) / A_1, harmonics fitted by linear least squar
 | `tol` | float | 1e-09 |  | Convergence threshold on |Δω/ω| (advanced) |
 | `maxiter` | int | 100 |  | Maximum number of iterations (advanced) |
 | `units` | str | physical |  | Display units (advanced) |
+| `xscale` | str | log |  | Frequency axis scale (advanced) |
 | `t_start` | object | none |  | Start of the analysed window (UTC time or seconds from start) (advanced) |
 | `t_end` | object | none |  | End of the analysed window (UTC time or seconds from start) (advanced) |
 | `n_harmonics` | int | 10 |  | Highest harmonic order (H2 to Hn) |

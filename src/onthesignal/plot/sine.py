@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..core.units import fmt_num
 from . import plotter
 from .style import (
     INK2,
@@ -13,9 +14,12 @@ from .style import (
     SURFACE,
     THIN_W,
     axis_label,
+    conditions_title,
     finish,
+    frequency_axis,
     info_box,
     legend,
+    mark_lines,
     shade_band,
     style_axes,
     value_line,
@@ -40,18 +44,73 @@ def _residual(ax: Any, result: Any) -> None:
     style_axes(ax)
 
 
+def _conditions(result: Any) -> str:
+    """``Conditions: residual band 0–100 Hz (ideal FFT mask), ENBW 98.5 Hz · 50 Hz and
+    harmonics removed (50, 100 Hz, ±0.5 Hz)``."""
+    p, kind = result.params, result.kind
+    band = result.extra.get("band")
+    parts = []
+    if band:
+        span = f"{fmt_num(band[0])}–{fmt_num(band[1])} Hz"
+        if kind in ("sinad", "dynamic"):
+            method = ("ideal FFT mask" if p.get("filter_method", "fft") == "fft"
+                      else f"zero-phase Butterworth, order {p.get('filter_order')}")
+            text = f"residual band {span} ({method})"
+            if "enbw" in result.values:
+                text += f", ENBW {result.values['enbw'].text()}"
+        elif kind == "thd":
+            text = f"harmonics H2–H{p.get('n_harmonics')} within {span}"
+        else:
+            text = f"spur search within {span}"
+        parts.append(text)
+    mains = f"{p.get('mains_freq', 50.0):g} Hz and harmonics"
+    lines = result.extra.get("mains_lines") or []
+    verb = _mains_verb(kind)
+    if kind == "thd":
+        if p.get("remove_mains"):
+            parts.append(f"harmonics on the {p.get('mains_freq', 50.0):g} Hz lines excluded")
+    elif p.get("remove_mains"):
+        if lines:
+            width = float(p.get("mains_width", 1.0)) / 2.0
+            parts.append(f"{mains} {verb} ({', '.join(f'{f:g}' for f in lines)} Hz, "
+                         f"±{width:g} Hz)")
+        else:
+            parts.append(f"{mains} {verb} (no line in the band)")
+    else:
+        parts.append(f"{mains} not {verb}")
+    return "\n".join(("Conditions: " if i == 0 else "") + part for i, part in enumerate(parts))
+
+
+def _mains_verb(kind: str) -> str:
+    """The mains lines are removed from the SINAD residual, excluded from the spur search."""
+    return "excluded from the spur search" if kind == "sfdr" else "removed"
+
+
+def _box_loc(result: Any, key: str) -> str:
+    """Results box corner: on a log frequency axis the low-frequency end is usually free."""
+    return "upper left" if result.curves[key].xscale == "log" else "upper right"
+
+
 def _spectrum(ax: Any, result: Any, key: str = "spectrum") -> None:
     c = result.curves[key]
     band = result.extra.get("band")
-    shade_band(ax, band)
-    ax.plot(c.x, c.y, color=SERIES[0], lw=THIN_W, label=c.label)
-    if band and band[1] < c.x[-1]:
-        ax.set_xlim(0, band[1] * 1.1)
+    x_max = band[1] * 1.1 if band and band[1] < c.x[-1] else c.x[-1]
+    if c.xscale == "log":
+        x_min = band[0] / 1.2 if band and band[0] > 0 else c.x[0]
     else:
-        ax.set_xlim(0, c.x[-1])
+        x_min = 0.0
+    if band:
+        shade_band(ax, [max(band[0], x_min), band[1]])
+    ax.plot(c.x, c.y, color=SERIES[0], lw=THIN_W, label=c.label)
+    if result.kind != "thd":
+        verb = "excluded" if result.kind == "sfdr" else "removed"
+        mark_lines(ax, result.extra.get("mains_lines") or [],
+                   label=f"{result.params.get('mains_freq', 50.0):g} Hz and harmonics ({verb})")
+    frequency_axis(ax, c.xscale, x_min, x_max)
     ax.set_xlabel(axis_label("Frequency", "Hz"))
     ax.set_ylabel(axis_label("Amplitude", "dBFS"))
     style_axes(ax)
+    conditions_title(ax, _conditions(result))
 
 
 def _marker(ax: Any, x: float, y: float, color: str, label: str | None, text: str = "") -> None:
@@ -109,7 +168,8 @@ def plot_sinad(result: Any, fig: Any) -> None:
     info_box(ax3, _sine_lines(result, [
         ("sinad", "SINAD"), ("enob", "ENOB"), ("enob_fs", "ENOB (FS)"),
         ("amplitude_dbfs", "Amplitude"), ("frequency", "f0"), ("sigma_r", "Residual RMS"),
-    ]))
+    ]), loc=_box_loc(result, "residual_spectrum"))
+    legend(ax3, loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=2, borderaxespad=0.1)
     finish(fig, result.title, result)
 
 
@@ -121,7 +181,7 @@ def plot_sfdr(result: Any, fig: Any) -> None:
     info_box(ax, _sine_lines(result, [
         ("sfdr_dbc", "SFDR"), ("sfdr_dbfs", "SFDR (FS)"), ("spur_frequency", "Spur at"),
         ("spur_nature", "Spur"), ("frequency", "f0"),
-    ]))
+    ]), loc=_box_loc(result, "spectrum"))
     legend(ax, loc="lower left")
     finish(fig, result.title, result)
 
@@ -135,7 +195,8 @@ def plot_thd(result: Any, fig: Any) -> None:
                 SERIES[1], "fundamental")
     _harmonics(ax, result)
     info_box(ax, _sine_lines(result, [("thd_db", "THD"), ("thd_pct", "THD"),
-                                      ("n_harmonics_used", "Harmonics"), ("frequency", "f0")]))
+                                      ("n_harmonics_used", "Harmonics"), ("frequency", "f0")]),
+             loc=_box_loc(result, "spectrum"))
     legend(ax, loc="lower left")
     finish(fig, result.title, result)
 
@@ -155,6 +216,6 @@ def plot_dynamic(result: Any, fig: Any) -> None:
         ("sinad", "SINAD"), ("enob", "ENOB"), ("enob_fs", "ENOB (FS)"), ("snr", "SNR"),
         ("thd_db", "THD"), ("sfdr_dbc", "SFDR"), ("dr", "Dynamic range"),
         ("amplitude_dbfs", "Amplitude"), ("frequency", "f0"),
-    ]))
+    ]), loc=_box_loc(result, "spectrum"))
     legend(ax_spec, loc="lower left")
     finish(fig, result.title, result)

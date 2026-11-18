@@ -9,6 +9,7 @@ and figures, and generate reports.
 - [Installation](installation.qmd) and [quick start](quickstart.qmd)
 - [Conventions](conventions.qmd): units, sensitivity, dB, dBFS, times
 - [Files](files.qmd): miniSEED, text files, export
+- [Test signals](test-signals.qmd): sine and noise from an ideal N-bit digitizer
 - [Command reference](commands.qmd): every `/` command and Python function
 - [Measurement procedures](measurement.qmd): digitizer self-noise, sine tests, NLNM comparison
 - [Acquisition and real time](acquisition.qmd)

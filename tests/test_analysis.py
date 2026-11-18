@@ -115,6 +115,40 @@ def test_v09_lnm_levels(rng):
     assert np.allclose(disp, acc - 40 * np.log10(w), atol=0.01)
 
 
+# Peterson (1993) tables: level = A + B log10(P) in dB re 1 (m/s²)²/Hz, (P, A, B).
+_NLNM_POINTS = [(0.1, -162.36, 5.64), (1.0, -166.40, 28.90), (5.0, -71.36, -99.77),
+                (10.0, -132.18, -31.57), (100.0, -216.47, 15.70), (300.0, -168.34, -7.61)]
+_NHNM_POINTS = [(0.1, -108.73, -17.23), (1.0, -116.85, 32.51), (5.0, -74.66, -32.95),
+                (10.0, -93.37, -22.42), (100.0, -151.52, 10.01), (300.0, -151.52, 10.01)]
+
+
+def test_peterson_models_match_the_published_tables():
+    """Regression: ObsPy gives decreasing periods; np.interp needs them increasing."""
+    periods, nlnm, nhnm = peterson_models("acceleration")
+    assert np.all(np.diff(periods) > 0)
+    for points, model in ((_NLNM_POINTS, nlnm), (_NHNM_POINTS, nhnm)):
+        for period, a, b in points:
+            level = np.interp(np.log10(period), np.log10(periods), model)
+            assert level == pytest.approx(a + b * math.log10(period), abs=0.2), period
+
+
+def test_lnm_difference_follows_the_model(rng):
+    """PSD − NLNM must follow the model shape (it was flat with unsorted model periods)."""
+    sigma, fs = 1e-6, 20.0
+    s = Signal(rng.normal(0, sigma, 72_000), fs, unit="m")
+    r = compute_lnm(s)
+    diff, smooth = r.curves["diff"], r.curves["psd_smooth"]
+    periods, nlnm, _ = peterson_models("displacement")
+    keep = np.isin(smooth.x, diff.x)
+    model = smooth.y[keep] - diff.y
+    expected = np.interp(np.log10(1.0 / diff.x), np.log10(periods), nlnm)
+    assert np.allclose(model, expected, atol=1e-9)
+    at_1s = np.interp(0.0, np.log10(1.0 / diff.x[::-1]), model[::-1])
+    assert at_1s == pytest.approx(-166.40 - 40 * math.log10(2 * math.pi), abs=0.3)
+    assert np.ptp(diff.y) > 50  # displacement NLNM spans tens of dB over 0.01–10 Hz
+    assert r.extra["x"] == "freq" and np.all(np.diff(r.curves["nlnm"].x) > 0)
+
+
 def test_lnm_requires_motion_unit(white_noise):
     white_noise.unit = "V"
     with pytest.raises(UnitError, match="ground-motion"):
@@ -193,3 +227,30 @@ def test_mains_coincidence_warning():
     fs, n = 1000.0, 100_000
     r = compute_sinad(Signal(sine(n, fs, 10.0, 1e5), fs))
     assert any("coincides with a mains line" in w for w in r.warnings)
+
+
+def test_sine_figures_show_conditions_and_removed_mains(rng):
+    """Sine spectra: log frequency axis by default, conditions above, red mains markers."""
+    from onthesignal.plot import plot_result
+    from onthesignal.plot.style import REMOVED
+
+    fs, n = 1000.0, 100_000
+    t = np.arange(n) / fs
+    x = sine(n, fs, 7.3, 1e6) + 2e3 * np.sin(2 * np.pi * 50.0 * t) + rng.normal(0, 10, n)
+    sig = Signal(x, fs, name="S1")
+    kept = compute_sinad(sig)
+    removed = compute_sinad(sig, remove_mains=True)
+    assert removed["sinad"] > kept["sinad"] + 20  # the 50 Hz dominated the residual
+    assert removed.curves["residual_spectrum"].xscale == "log"
+    assert compute_sinad(sig, xscale="linear").curves["residual_spectrum"].xscale == "linear"
+    assert compute_sfdr(sig, remove_mains=True).extra["mains_lines"] == [50.0, 100.0]
+
+    spec = plot_result(removed).axes[2]
+    assert spec.get_xscale() == "log"
+    title = spec.get_title(loc="left")
+    assert "0–100 Hz" in title and "50 Hz and harmonics removed (50, 100 Hz, ±0.5 Hz)" in title
+    red = [ln for ln in spec.get_lines() if ln.get_color() == REMOVED]
+    assert sorted(ln.get_xdata()[0] for ln in red) == [50.0, 100.0]
+    spec_kept = plot_result(kept).axes[2]
+    assert "50 Hz and harmonics not removed" in spec_kept.get_title(loc="left")
+    assert not [ln for ln in spec_kept.get_lines() if ln.get_color() == REMOVED]

@@ -11,7 +11,7 @@ Each layer only depends on the layers below it.
 | Interfaces | `cli` (phase 1), web (phase 2) | input, display |
 | Services | `api`, `report`, `scripts`, `ai`, `core.session`, `core.registry` | orchestration, session, reports |
 | Rendering | `plot` | figures built from `Result` objects |
-| Core | `core` (`Signal`, `Result`, `Param`), `io`, `processing`, `analysis`, `seedlink` | pure computation and data access |
+| Core | `core` (`Signal`, `Result`, `Param`), `io`, `synthetic`, `processing`, `analysis`, `seedlink` | pure computation and data access |
 
 ```text
 src/onthesignal/
@@ -26,6 +26,7 @@ src/onthesignal/
 ├── ai/          providers, tools, context (agent.md), assistant
 ├── cli/         console, / commands, forms, completion, display, editor
 ├── templates/   script_template.py, report.qmd.j2
+├── synthetic.py test signals (ideal N-bit digitizer): make_sine, make_noise
 └── api.py       public functions built from the registry
 ```
 

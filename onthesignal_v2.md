@@ -204,6 +204,7 @@ Cœur         core (Signal, Result, Param) · io · processing · analysis · se
 - `Signal(data, sampling_rate, starttime=None, network="XX", station="", location="", channel="", unit="counts", sensitivity=1.0, full_scale=2**24, metadata=None)`
 - `Signal.from_trace(trace)` et `S.to_trace()` pour l'interopérabilité avec ObsPy.
 - `load(...)` pour les fichiers (§6).
+- `make_sine(frequency, ratio, bits, ...)` et `make_noise(rms, color, bits, ...)` : signaux de test d'un numériseur idéal N bits (pleine échelle `2**bits`, quantification, saturation), amplitude du sinus en fraction de la pleine échelle (`ratio`) ou en dBFS, bruit ajouté, harmoniques, raie secteur, graine aléatoire enregistrée ; commandes `/make_sine` et `/make_noise`.
 
 #### Méthodes
 
@@ -452,7 +453,7 @@ Utilisés par `noise_fft`, `noise_dsp`, `lnm`, `coherence` et `spectrogram`.
 
 **Objectif** : comparer la DSP du signal au gabarit NLNM de Peterson (1993), en tenant compte de la sensibilité et de l'unité du signal.
 
-**Paramètres** : fenêtre temporelle ; paramètres spectraux (§8.4) ; `smoothing` (lissage en bandes de 1/n d'octave, défaut n = 8) ; `show_nhnm` (défaut `True`) ; `x` = `"period"` (défaut) ou `"freq"`.
+**Paramètres** : fenêtre temporelle ; paramètres spectraux (§8.4) ; `smoothing` (lissage en bandes de 1/n d'octave, défaut n = 8) ; `show_nhnm` (défaut `False`, modifié le 2026-11-18 à la demande) ; `x` = `"freq"` (défaut) ou `"period"`.
 
 **Algorithme** :
 
@@ -472,7 +473,7 @@ Utilisés par `noise_fft`, `noise_dsp`, `lnm`, `coherence` et `spectrogram`.
 
 **Affichage** : une figure matplotlib à deux graphiques superposés, partageant l'axe des abscisses (logarithmique) :
 
-- en haut : DSP du signal (brute en trait fin, lissée en trait épais), NLNM et NHNM ;
+- en haut : DSP du signal (brute en trait fin, lissée en trait épais), NLNM (et NHNM si `show_nhnm=True`) ;
 - en bas : écart Δ en dB, avec la ligne 0 dB et les zones situées sous le NLNM mises en évidence.
 
 **Sorties** : courbes ; écart minimal, maximal et moyen sur le domaine commun ; période (ou fréquence) de l'écart maximal ; proportion du domaine où la DSP est inférieure au NLNM.
@@ -514,7 +515,7 @@ $$ENOB_{PE} = \frac{SINAD + 20\log_{10}\left(\frac{PE/2}{A}\right) - 1{,}76}{6{,
 
 **Sorties** : amplitude (counts, unité physique, dBFS), fréquence, offset, σ_r, SINAD (dB), ENOB, ENOB_PE, THD+N (= −SINAD, en dB).
 
-**Affichage** : signal et sinus ajusté (zoom sur quelques périodes), résidu temporel, spectre du résidu avec la bande d'étude et les raies secteur ; encadré de résultats.
+**Affichage** : signal et sinus ajusté (zoom sur quelques périodes), résidu temporel, spectre du résidu avec la bande d'étude et les raies secteur ; encadré de résultats. Le spectre rappelle au-dessus du graphique les **conditions de calcul** (bande d'étude, méthode de filtrage, ENBW, 50 Hz et harmoniques supprimés ou non) ; chaque raie secteur supprimée est repérée par un **trait vertical rouge** ; l'axe des fréquences est **logarithmique** par défaut (`xscale="linear"` en option). Ces règles valent aussi pour les figures `sfdr`, `thd` et `dynamic`.
 
 ### 10.3 SFDR — `sfdr(S)` (alias `SFDR`) — P1
 
@@ -1070,7 +1071,7 @@ Les points ouverts de la v2 ont été tranchés le 2026-11-17. Ces décisions so
 | 2 | Trous dans les fichiers miniSEED | Conserver le plus long segment continu ; trous toujours signalés, jamais comblés silencieusement (§6.1) |
 | 3 | Méthode de limitation de bande | Masque FFT par défaut ; Butterworth aller-retour en option (§7.2) |
 | 4 | `detrend` par défaut | Retrait de la moyenne seule, `"constant"` (§7.1) |
-| 5 | `lnm` | Axe en période ; lissage 1/8 d'octave ; NHNM affiché (§9) |
+| 5 | `lnm` | Axe en fréquence (modifié le 2026-11-18, à la demande ; `x="period"` reste disponible) ; lissage 1/8 d'octave ; NHNM masqué par défaut (modifié le 2026-11-18 ; `show_nhnm=True` pour l'afficher) (§9) |
 | 6 | ENOB | ENOB (relatif au sinus mesuré) et ENOB_PE (ramené à la pleine échelle) publiés tous les deux (§10.2) |
 | 7 | THD | Harmoniques 2 à 10 situées dans la bande d'étude (§10.4) |
 | 8 | `delay50` | Fonctionnement générique du §11.3 (échelon, impulsion ou PPS), appariement avec le front le plus proche |

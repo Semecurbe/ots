@@ -24,6 +24,7 @@ website:
         - user/quickstart.qmd
         - user/conventions.qmd
         - user/files.qmd
+        - user/test-signals.qmd
         - user/commands.qmd
         - user/measurement.qmd
         - user/acquisition.qmd
@@ -44,6 +45,7 @@ website:
         - algorithms/measures.qmd
         - algorithms/coherence-spectrogram.qmd
         - algorithms/signal-operations.qmd
+        - algorithms/test-signals.qmd
         - algorithms/realtime.qmd
     - title: "Developer guide"
       contents:
@@ -85,6 +87,11 @@ quartodoc:
         - io.mseed.read_obspy
         - io.text.read_text
         - io.export.save_signal
+    - title: Test signals
+      desc: Ideal N-bit digitizer; `onthesignal.make_sine` / `make_noise` also register the signal in the session.
+      contents:
+        - synthetic.make_sine
+        - synthetic.make_noise
     - title: Analyses
       desc: Pure computations; the console and `onthesignal.noise(...)` call them through the registry.
       contents:

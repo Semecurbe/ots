@@ -8,13 +8,17 @@ displays it when appropriate and returns it.
 
 from __future__ import annotations
 
+import functools
 import inspect
 import time
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from . import analysis  # noqa: F401  (registers the analysis commands)
+from . import (
+    analysis,  # noqa: F401  (registers the analysis commands)
+    synthetic,
+)
 from .core.errors import ParameterError
 from .core.params import resolve_params
 from .core.registry import Command, get_command
@@ -174,6 +178,34 @@ def load(path: str | Path, fmt: str | None = None, name: str | Sequence[str] | N
     return signals[0] if len(signals) == 1 else signals
 
 
+def _registering(func: Callable[..., Signal]) -> Callable[..., Signal]:
+    """Session version of a signal factory: the signal is registered as ``S1``, ``S2``..."""
+    base = inspect.signature(func)
+
+    @functools.wraps(func)
+    def wrapper(*args: Any, name: str | None = None, **kwargs: Any) -> Signal:
+        sig = func(*args, **kwargs)
+        session = get_session()
+        session.add_signal(sig, name)
+        call = [repr(a) for a in args] + [f"{k}={v!r}" for k, v in kwargs.items()]
+        session.history.append(f"{func.__name__}({', '.join(call)})")
+        return sig
+
+    params = [*base.parameters.values(),
+              inspect.Parameter("name", inspect.Parameter.KEYWORD_ONLY, default=None)]
+    wrapper.__signature__ = base.replace(parameters=params)  # type: ignore[attr-defined]
+    doc = inspect.cleandoc(func.__doc__ or "")
+    wrapper.__doc__ = doc.replace(
+        "\n\nReturns\n",
+        "\nname : str, optional\n    Session name (default: next free name, ``S1``, ``S2``...)."
+        "\n\nReturns\n", 1)
+    return wrapper
+
+
+make_sine = _registering(synthetic.make_sine)
+make_noise = _registering(synthetic.make_noise)
+
+
 def list_sig() -> None:
     """Print the table of the signals of the session."""
     session = get_session()
@@ -309,6 +341,8 @@ __all__ = [
     "list_sig",
     "lnm",
     "load",
+    "make_noise",
+    "make_sine",
     "noise",
     "noise_dsp",
     "noise_fft",

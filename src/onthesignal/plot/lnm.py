@@ -23,7 +23,7 @@ from .style import (
 
 @plotter("lnm")
 def plot_lnm(result: Any, fig: Any) -> None:
-    period = result.extra.get("x", "period") == "period"
+    period = result.extra.get("x", "freq") == "period"
 
     def to_x(f: np.ndarray) -> np.ndarray:
         return 1.0 / np.asarray(f) if period else np.asarray(f)
@@ -46,7 +46,8 @@ def plot_lnm(result: Any, fig: Any) -> None:
                  max(np.nanmax(smooth.y), np.nanmax(ref)) + 10)
     ax1.set_ylabel(f"PSD ({psd.y_unit})")
     style_axes(ax1)
-    legend(ax1, loc="lower left" if period else "lower right")
+    # Above the axes: the models cross the whole plot, so no inner corner is reliably free.
+    legend(ax1, loc="lower right", bbox_to_anchor=(1.0, 1.0), ncol=4, borderaxespad=0.1)
 
     diff = result.curves["diff"]
     xd = to_x(diff.x)
@@ -60,7 +61,8 @@ def plot_lnm(result: Any, fig: Any) -> None:
     style_axes(ax2)
     info_box(ax2, [
         value_line(result, "diff_max", "Max"),
-        value_line(result, "period_max", "at period"),
+        value_line(result, "period_max", "at period") if period
+        else value_line(result, "freq_max", "at frequency"),
         value_line(result, "below_nlnm", "Below NLNM"),
     ])
     lims = sorted(to_x(np.array([diff.x[0], diff.x[-1]])))

@@ -1,0 +1,130 @@
+---
+title: "Test signals"
+---
+
+## Objective
+
+Generate signals whose characteristics are known exactly — a sine of given level relative to
+full scale, random noise of given RMS and spectral shape — as digitized by an ideal N-bit
+converter, so that the analyses can be checked against theoretical values and the results of
+a real digitizer compared with those of an ideal one (`make_sine`, `make_noise`).
+
+## Principle and equations
+
+Notations: $N$ number of bits, $f_s$ sampling rate, $n = 0 \dots M-1$ sample index,
+$t_n = n/f_s$.
+
+**Ideal digitizer.** Full scale $FS = 2^N$ counts peak-to-peak; one count is one LSB. The
+analog value $x_n$ becomes the code
+
+$$
+q_n = \operatorname{clip}\left(\operatorname{round}(x_n),\ -2^{N-1},\ 2^{N-1}-1\right).
+$$
+
+When the signal spans many codes and is not synchronous with the sampling, the rounding error
+is uniform on $[-\tfrac12, \tfrac12]$ and white, of RMS $\sigma_q = 1/\sqrt{12}$ count.
+
+**Sine.** With the ratio $r$ (peak-to-peak amplitude / full scale), the peak amplitude is
+$A = r \, 2^{N-1}$ counts, i.e. $20\log_{10} r$ dBFS:
+
+$$
+x_n = A \sin(\varphi_n) + \sum_{k \ge 2} A\,10^{L_k/20} \sin(k\varphi_n) + \sigma_n w_n + c
+      + A_m \sin(2\pi f_m t_n),
+\qquad \varphi_n = 2\pi f_0 t_n + \varphi_0
+$$
+
+with the harmonic levels $L_k$ in dBc, a Gaussian white noise $w_n \sim \mathcal N(0, 1)$ of
+RMS $\sigma_n$, an offset $c$ and an optional mains line of level $A_m = 10^{L_m/20} 2^{N-1}$.
+
+Without harmonics, the expected full-band SINAD is
+
+$$
+\text{SINAD} = 10\log_{10}\frac{A^2/2}{\sigma_q^2 + \sigma_n^2}
+\quad\xrightarrow{\ \sigma_n = 0\ }\quad 6.02\,N + 1.76 + 20\log_{10} r \ \text{dB},
+$$
+
+so that $\text{ENOB}_{FS} = N$ for an ideal converter whatever $r$.
+
+**Noise.** White noise: $x_n = \sigma w_n$. Pink (power $\propto 1/f$) and brown
+($\propto 1/f^2$) noises shape the spectrum of a white sequence, $X_k \leftarrow W_k /
+f_k^{\alpha/2}$ with $\alpha = 1$ or $2$ and $X_0 = 0$, then scale the result to an RMS of
+exactly $\sigma$. After quantization the RMS of white noise is $\sqrt{\sigma^2 + 1/12}$.
+
+## Assumptions and validity
+
+- The quantization noise is $1/\sqrt{12}$ count RMS and white only if the signal spans many
+  codes (amplitude of tens of LSB at least, or added noise ≥ 0.5 count RMS) and is not
+  synchronous with $f_s$. A sine at $f_0 = f_s\,m/M$ with small $M$ repeats the same codes:
+  the quantization error becomes periodic and appears as harmonics instead of noise. The
+  default 7.3 Hz at 1000 Hz avoids this.
+- $f_0$ must be below Nyquist; harmonics at or above Nyquist are skipped (with a warning)
+  rather than aliased.
+- $r > 1$ (or a large offset) clips the signal: the number of clipped samples is reported.
+
+## Numerical implementation
+
+`onthesignal.synthetic`:
+
+1. Parameters are validated through their `Param` declarations (`SINE_PARAMS`,
+   `NOISE_PARAMS`), which also generate the console forms and the AI tool schemas.
+2. Random numbers come from `numpy.random.default_rng(seed)` (PCG64). Without a seed, one is
+   drawn from `numpy.random.SeedSequence` and recorded in `metadata["seed"]` and in the
+   history, so that any signal can be regenerated.
+3. Harmonics use the phase of the fundamental ($\sin k\varphi_n$), as produced by a static
+   non-linearity.
+4. Pink and brown noises: `scipy.fft.rfft` of the white sequence, division by
+   $f^{\alpha/2}$, `irfft`, scaling to the requested RMS.
+5. `numpy.round` (round half to even), clipping, storage as `int32` (`int64` above 31 bits) so
+   that the samples look like those read from a miniSEED file; the signal gets
+   `full_scale = 2**bits`, unit `counts` and a title built from its parameters.
+
+## Limits, biases and uncertainty
+
+- The converter is ideal: no differential or integral non-linearity, no missing codes, no
+  clock jitter, no anti-aliasing filter. Real digitizers are compared against this
+  reference, not modelled by it.
+- White noise has a standard deviation of $\sigma$ in expectation: the RMS of one realization
+  differs by about $\sigma/\sqrt{2M}$. Pink and brown noises are scaled to an exact sample RMS.
+- The shaped noises are circular (their first and last samples are correlated) and have no
+  power below $1/T$; brown noise is dominated by its lowest frequencies.
+
+## Validation
+
+| Case | Expected | Tolerance | Test |
+|---|---|---|---|
+| Ideal sine, 16 and 24 bits, ratio 0.9, full band | SINAD $6.02N + 1.76 + 20\log_{10}0.9$, $ENOB_{FS} = N$ | ± 0.2 dB, ± 0.1 bit | `test_ideal_quantized_sine_gives_theoretical_sinad` |
+| `dbfs`, title, clipping above full scale | ratio, title, codes $-2^{N-1}$ … $2^{N-1}-1$, warning | — | `test_sine_amplitude_options_and_title` |
+| H2 −100 dBc, H3 −110 dBc | THD $= 10\log_{10}(10^{-10} + 10^{-11})$ | ± 0.2 dB | `test_harmonics_noise_and_mains` |
+| White noise σ = 5, quantized | RMS $\sqrt{25 + 1/12}$; same seed, same samples | ± 1 % | `test_noise_rms_color_and_seed` |
+| Pink noise | exact RMS, −10 dB/decade (20 dB between 1–2 Hz and 100–200 Hz) | ± 1.5 dB | `test_noise_rms_color_and_seed` |
+| Declarations = Python signatures | same names and defaults | — | `test_param_declarations_match_signatures` |
+
+## Worked example
+
+```{python}
+import math
+from onthesignal.analysis import compute_noise, compute_sinad
+from onthesignal.synthetic import make_noise, make_sine
+
+s = make_sine(7.3, ratio=0.9, bits=16, seed=1)
+r = compute_sinad(s, fmax=1e9)
+print(s.title)
+print(f"SINAD {r['sinad']:.2f} dB (expected {6.02 * 16 + 1.76 + 20 * math.log10(0.9):.2f}), "
+      f"ENOB full scale {r['enob_fs']:.2f} bits")
+
+n = make_noise(5.0, bits=24, seed=1)
+rn = compute_noise(n, fmax=1e9)
+print(n.title)
+print(f"RMS {rn['rms']:.3f} counts (expected {math.sqrt(25 + 1 / 12):.3f}), "
+      f"dynamic range {rn['dr']:.2f} dB")
+```
+
+## References
+
+- IEEE Std 1241-2010, *Standard for Terminology and Test Methods for Analog-to-Digital
+  Converters* (ideal quantizer, $6.02N + 1.76$ dB).
+- Bennett, W. R. (1948). Spectra of quantized signals. *Bell System Technical Journal*,
+  27(3), 446–472.
+- Widrow, B., & Kollár, I. (2008). *Quantization Noise*. Cambridge University Press.
+- Timmer, J., & König, M. (1995). On generating power law noise. *Astronomy and
+  Astrophysics*, 300, 707–710.

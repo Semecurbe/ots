@@ -1,0 +1,92 @@
+---
+title: "Test signals"
+---
+
+Synthetic signals with known characteristics are useful to check the analyses, to learn what
+a result should look like, and to know what an ideal digitizer would give before measuring a
+real one. `make_sine` and `make_noise` create them in the session (`S1`, `S2`…), like
+`load`.
+
+Both model an **ideal N-bit digitizer**: full scale of `2**bits` counts peak-to-peak, codes
+from $-2^{N-1}$ to $2^{N-1}-1$, rounding to the nearest code (quantization noise
+$1/\sqrt{12}$ count RMS), clipping beyond the code range with a warning. The signals are in
+counts and carry `full_scale = 2**bits`, so every analysis uses the right full scale without
+any option. The algorithm is described in [Test signals](../algorithms/test-signals.qmd).
+
+## A sine
+
+```python
+make_sine()                                    # 7.3 Hz, 0.9 × full scale, 24 bits, 60 s at 1000 Hz
+make_sine(7.3, ratio=0.5, bits=16)             # half full scale (−6.02 dBFS), 16 bits
+make_sine(13.7, dbfs=-1, bits=24, noise_rms=2) # level in dBFS, 2 counts RMS of added noise
+make_sine(harmonics="2:-100,3:-110", mains_dbfs=-80)  # known distortion and a 50 Hz line
+make_sine(bits=20, name="SIN20")               # choose the session name
+```
+
+The **ratio** is the peak-to-peak amplitude divided by the full scale, i.e. the peak
+amplitude divided by $2^{N-1}$: `ratio=1` is a full-scale sine (0 dBFS), and above 1 the
+sine is clipped. `dbfs` gives the same level in dB and replaces `ratio` when both are given.
+
+| `ratio` | 1 | 0.9 | 0.5 | 0.1 | 0.01 |
+|---|---|---|---|---|---|
+| Level (dBFS) | 0 | −0.92 | −6.02 | −20 | −40 |
+
+In the console, `/make_sine 7.3 0.5 16` gives the frequency, the ratio and the number of bits
+in that order; other parameters use `key=value` (`/make_sine 7.3 0.5 16 noise_rms=2`).
+`/make_sine` alone opens a form.
+
+## Random noise
+
+```python
+make_noise()                          # white Gaussian noise, 1 count RMS, 24 bits, 60 s
+make_noise(5, bits=24, duration=600)  # 5 counts RMS for 10 minutes
+make_noise(5, "pink")                 # 1/f noise (pink), "brown" for 1/f²
+make_noise(5, mains_dbfs=-120)        # noise with a 50 Hz line, to test remove_mains
+```
+
+Console: `/make_noise 5 pink` (RMS, color, bits in that order) or `/make_noise` for the form.
+
+## Parameters
+
+```{python}
+#| echo: false
+#| output: asis
+from onthesignal.synthetic import NOISE_PARAMS, SINE_PARAMS
+
+for title, decl in (("make_sine", SINE_PARAMS), ("make_noise", NOISE_PARAMS)):
+    print(f"### `{title}`\n")
+    print("| Parameter | Default | Unit | Description |\n|---|---|---|---|")
+    for p in decl:
+        adv = " *(advanced)*" if p.advanced else ""
+        print(f"| `{p.name}` | `{p.describe_default()}` | {p.unit} | {p.help}{adv} |")
+    print()
+print("Every function also accepts `name=` (session name).")
+```
+
+## What to expect
+
+With the default sampling rate (1000 Hz) and study band (0–100 Hz), the analyses only see a
+fifth of a white noise: the band limitation gains $10\log_{10}(500/100) = 7$ dB on a SINAD or
+a dynamic range. Use `fmax=1e9` (whole band up to Nyquist) to compare with the full-band
+formulas.
+
+| Signal | Analysis | Expected value |
+|---|---|---|
+| `make_sine(ratio=r, bits=N)` | `sinad(S, fmax=1e9)` | SINAD $= 6.02N + 1.76 + 20\log_{10} r$ dB, ENOB (full scale) $= N$ |
+| same | `sinad(S)` (band 0–B) | the value above $+ 10\log_{10}\frac{f_s/2}{B}$ dB |
+| `make_sine(..., noise_rms=σ)` | `sinad(S, fmax=1e9)` | $20\log_{10}\frac{A/\sqrt2}{\sqrt{σ^2 + 1/12}}$, $A = r\,2^{N-1}$ |
+| `make_sine(harmonics={k: L_k})` | `thd(S)` | $10\log_{10}\sum_k 10^{L_k/10}$ dBc |
+| `make_sine(mains_dbfs=…)` | `sinad(S, remove_mains=True)` | the mains line no longer counts |
+| `make_noise(σ, bits=N)` | `noise(S, fmax=1e9)` | RMS $= \sqrt{σ^2 + 1/12}$, DR $= 20\log_{10}\frac{2^N/(2\sqrt2)}{\text{RMS}}$ |
+| `make_noise(σ)` (white) | `noise(S)` (band 0–B) | RMS $\times \sqrt{B/(f_s/2)}$ |
+
+Examples: an ideal 24-bit sine at 0.9 × full scale gives a full-band SINAD of 145.3 dB and an
+ENOB (full scale) of 24 bits; `make_noise(1, bits=24)` gives a dynamic range of about
+135.1 dB over the whole band and 142.1 dB in the default 0–100 Hz band.
+
+## Reproducibility
+
+Each signal records its random seed in `S.metadata["seed"]` and in its history
+(`S.print()`). Passing the same `seed` regenerates exactly the same samples:
+`make_noise(5, seed=12345)`. The title (`sine 7.3 Hz, -0.92 dBFS, 24 bits`) and the
+metadata (`ratio`, `amplitude`, `bits`…) recall how the signal was made.
