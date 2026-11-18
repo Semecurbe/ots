@@ -85,6 +85,23 @@ def test_signal_attributes():
         s.sensitivity = 0
 
 
+def test_signal_title_and_label():
+    s = Signal(np.zeros(10), 10.0, network="RD", station="SN270", location="00", channel="FHZ",
+               title=" bench_1 ")
+    assert s.title == "bench_1"
+    assert s.label == "bench_1 (RD.SN270.00.FHZ)"
+    s.name = "S1"
+    assert s.label == "S1 · bench_1 (RD.SN270.00.FHZ)"
+    assert "bench_1" in s.describe() and s.identity()["title"] == "bench_1"
+    assert (2 * s).title == "bench_1" and s.slice(0, 0.5).title == "bench_1"
+    s.title = None
+    assert s.title == "" and s.label == "S1 (RD.SN270.00.FHZ)"
+    a = Signal(np.ones(10), 10.0, name="A", title="run_a")
+    b = Signal(np.ones(10), 10.0, name="B", title="run_b")
+    assert (a - b).title == "run_a − run_b"
+    assert (a + a.copy()).title == "run_a"
+
+
 def test_scalar_operators_do_not_modify_original():
     s = Signal(np.ones(10), 10.0, name="S1")
     d = 2 * s

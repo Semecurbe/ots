@@ -123,6 +123,7 @@ def run_analysis(console: OnTheSignalConsole, cmd: Command, positional: list[str
 LOAD_OPTIONS = (
     Param("fmt", str, None, nullable=True),
     Param("name", str, None, nullable=True),
+    Param("title", str, None, nullable=True),
     Param("select", str, None, nullable=True),
     Param("gaps", str, "longest", choices=GAP_POLICIES),
     Param("starttime", object, None),

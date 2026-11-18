@@ -16,7 +16,7 @@ dynamic(S2, noise=S1, report=True)
 ```
 
 A report is a folder `reports/YYYY-MM-DD_hhmm_<title>/` with `report.qmd` and `figures/`
-(PNG). It contains: context (free text), analysed signals (codes, sampling rate, unit,
+(PNG). It contains: context (free text), analysed signals (name, title, codes, sampling rate, unit,
 sensitivity, source file, SHA-256, gaps), one section per result (figure, values with units,
 tables, warnings, parameters), processing history, software versions, and a conclusion to
 complete.

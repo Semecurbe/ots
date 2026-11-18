@@ -121,6 +121,7 @@ class Session:
             rows.append(
                 {
                     "Name": name,
+                    "Title": s.title or "—",
                     "NSLC": s.id,
                     "fs (Hz)": f"{s.sampling_rate:.1f}",
                     "Start (UTC)": str(s.starttime),

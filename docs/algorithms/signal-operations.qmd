@@ -24,7 +24,9 @@ difference of two signals, time windows, resampling.
 - **Resampling** `S.resample(fs)`: `scipy.signal.resample_poly` with the ratio approximated by
   a fraction of denominator ≤ 1000.
 
-Every operation returns a **new** signal and appends a line to `history`.
+Every operation returns a **new** signal and appends a line to `history`. The derived signal
+keeps the title of the first operand; for `S1 ± S2` with different titles, the title becomes
+`title1 ± title2`.
 
 ## Assumptions and validity
 

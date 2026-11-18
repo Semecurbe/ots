@@ -65,6 +65,7 @@ def read_text(
     time_format: str = "relative",
     starttime: Any = None,
     names: Sequence[str] | None = None,
+    title: Any = None,
     units: Any = None,
     sensitivities: Any = None,
     full_scale: float | None = None,
@@ -98,6 +99,9 @@ def read_text(
         Time origin when the time column is relative or absent (default 1970-01-01).
     names : sequence of str, optional
         Per-channel codes: full ``NET.STA.LOC.CHA`` ids or channel codes.
+    title : str or sequence of str, optional
+        Signal title, for all channels or one per channel (default: the file name without
+        its extension).
     units, sensitivities : str/float or sequence, optional
         Unit and sensitivity, for all channels or one per channel.
     time_tolerance : float
@@ -194,6 +198,7 @@ def read_text(
     names_list = (
         _per_channel(names, n_channels, "names") if names is not None else [None] * n_channels
     )
+    titles = _per_channel(title, n_channels, "title")
     units_list = _per_channel(units, n_channels, "units")
     sens_list = _per_channel(sensitivities, n_channels, "sensitivities")
     sha = file_sha256(path)
@@ -211,6 +216,7 @@ def read_text(
             history.append(note)
         sig = Signal(
             table[:, j], fs, starttime=t0, network=net, station=sta, location=loc, channel=cha,
+            title=titles[j] if titles[j] is not None else path.stem,
             source=str(path), sha256=sha, history=history, full_scale=full_scale,
         )
         if units_list[j] is not None:

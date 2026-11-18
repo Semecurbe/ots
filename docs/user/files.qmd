@@ -25,6 +25,30 @@ load("data/acq.mseed", gaps="fill")
 Whatever the policy, the gaps are listed in `S.gaps`, shown by `S.print()` and recalled in
 every result.
 
+## Signal title
+
+Every loaded signal gets a **title**: by default the file name without its extension
+(`data/acquisition_FHZ.mseed` → `acquisition_FHZ`). All the channels of a file share it; the
+NSLC code tells them apart. The title appears in:
+
+- the title of every result and figure: `Noise — S1 · acquisition_FHZ (RD.SN270.00.FHZ) · …`;
+- the `Title` column of `list_sig()` and of the "Analysed signals" table of reports;
+- `S1.print()`, the AI context and the header of text/CSV exports.
+
+Choose another title when loading, or change it at any time:
+
+```python
+load("data/acq.mseed", title="Bench test, gain 1")       # same title for every channel
+load("bench.txt", n_channels=2, fs=1000, title=["X axis", "Y axis"])  # one per channel
+S1.title = "Shorted input, 20 °C"
+```
+
+`/load data/acq.mseed title="Bench test"` does the same in the console. A signal derived from
+another one (`2 * S1`, `S1.slice(...)`, `S1.filter(...)`) keeps its title; the sum or the
+difference of two signals with different titles is titled `title1 + title2` or
+`title1 − title2`. The miniSEED format cannot store the title: a re-loaded export is titled
+after its new file name.
+
 ## Text files
 
 One column per channel, with an optional time column. The number of channels is mandatory and
@@ -47,6 +71,7 @@ load("log.txt", n_channels=1, time_col=0, time_format="iso")
 | `time_format` | `relative` | `relative` (s), `epoch` or `iso` |
 | `starttime` | 1970-01-01 | time origin for relative times |
 | `names`, `units`, `sensitivities` | `XX.<file>..C01`… | per-channel codes and parameters |
+| `title` | file name | signal title, one for all channels or one per channel |
 | `resample` | false | interpolate an irregular time column instead of failing |
 
 With a time column, the sampling rate is the inverse of the median step; a step deviating by
@@ -57,6 +82,6 @@ asks the number of channels, the time column and, when needed, the sampling rate
 
 ```python
 S1.save("S1.mseed")    # miniSEED, STEIM2 for integer counts (SEED code lengths checked)
-S1.save("S1.csv")      # header + time (s) and value (counts)
+S1.save("S1.csv")      # header (id, title, unit...) + time (s) and value (counts)
 r.save("result.json")  # any result; .csv gives the table of values
 ```

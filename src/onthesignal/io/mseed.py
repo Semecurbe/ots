@@ -49,8 +49,9 @@ def read_obspy(
         interpolation, return one signal per continuous segment, or refuse the file. Gaps are
         always recorded in ``Signal.gaps``.
     **attrs
-        Signal attributes applied to every signal (``unit``, ``sensitivity``, ``full_scale``,
-        ``metadata``).
+        Signal attributes applied to every signal (``title``, ``unit``, ``sensitivity``,
+        ``full_scale``, ``metadata``). The title defaults to the file name without its
+        extension.
     """
     if gaps not in GAP_POLICIES:
         raise ParameterError(f"gaps must be one of {', '.join(GAP_POLICIES)}")
@@ -104,6 +105,7 @@ def read_obspy(
         for tr in traces:
             sig = Signal.from_trace(
                 tr,
+                title=path.stem,
                 source=str(path),
                 sha256=sha,
                 gaps=[dict(g) for g in gap_info],
@@ -120,7 +122,7 @@ def _apply_attrs(sig: Signal, attrs: dict[str, Any]) -> None:
             continue
         if key == "metadata":
             sig.metadata.update(value)
-        elif key in ("unit", "sensitivity", "full_scale"):
+        elif key in ("title", "unit", "sensitivity", "full_scale"):
             setattr(sig, key, value)
         else:
             raise ParameterError(f"Unknown option for miniSEED files: {key}")

@@ -33,6 +33,7 @@ Analyses return a **result**: `r = noise(S1)`, then `r["rms"]`, `r["dr"]`, `r.to
 
 ```python
 S1.print()                 # every attribute and basic statistics
+S1.title = "Shorted input" # title shown in figures, list_sig() and reports (default: file name)
 S1.show()                  # time series (matplotlib window)
 S2 = 2 * S1                # new signal, amplitude doubled
 S4 = S1 + S3               # sum on the common time window (interpolated if needed)

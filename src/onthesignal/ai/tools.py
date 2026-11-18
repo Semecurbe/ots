@@ -83,7 +83,7 @@ def build_tools(session: Session) -> dict[str, Tool]:
         options = dict(args.get("options") or {})
         loaded = api.load(args["path"], **options)
         loaded = loaded if isinstance(loaded, list) else [loaded]
-        return [{"name": s.name, "id": s.id} for s in loaded]
+        return [{"name": s.name, "title": s.title, "id": s.id} for s in loaded]
 
     def run_script(args: dict) -> Any:
         from ..scripts import run_script as run

@@ -50,6 +50,12 @@ def test_parse():
     assert commands.parse("/exit")[0] == "quit"
 
 
+def test_load_with_title(console, mseed):
+    console.execute(f'/load {mseed} title="Bench test, gain 1" name=B')
+    assert console.session.signals["B_1"].title == "Bench test, gain 1"
+    assert console.session.signals["S1"].title == mseed.stem
+
+
 def test_files_loaded_and_python(console):
     assert list(console.session.signals) == ["S1", "S2"]
     console.execute("r = noise(S1, fmax=50)")

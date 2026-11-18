@@ -113,7 +113,7 @@ def describe_signal(sig: Signal, full_scale: float = 2.0**24) -> list[str]:
     from ..processing.spectral import amplitude_spectrum
 
     st = sig.stats()
-    lines = [f"### {sig.name} — {sig.id}",
+    lines = [f"### {sig.label}",
              f"- {sig.sampling_rate:g} Hz, {fmt_num(sig.duration)} s, start {sig.starttime}",
              f"- unit {pretty_unit(sig.unit)}"
              + ("" if sig.unit == COUNTS else f", sensitivity {sig.sensitivity:.4g}/count"),
@@ -171,7 +171,9 @@ def session_summary(session: Session) -> str:
     lines = ["Signals loaded:"]
     for name, s in session.signals.items():
         unit = pretty_unit(s.unit)
-        lines.append(f"- {name}: {s.id}, {s.sampling_rate:g} Hz, {fmt_num(s.duration)} s, {unit}"
+        title = f' "{s.title}"' if s.title else ""
+        lines.append(f"- {name}{title}: {s.id}, {s.sampling_rate:g} Hz, "
+                     f"{fmt_num(s.duration)} s, {unit}"
                      + ("" if s.unit == COUNTS else f", sensitivity {s.sensitivity:.4g}"))
     if not session.signals:
         lines.append("- none")

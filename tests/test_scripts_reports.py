@@ -64,12 +64,15 @@ def test_batch_records_errors(tmp_path, files):
 
 def test_report_generation(tmp_path, white_noise):
     fs, n = 1000.0, 100_000
-    s2 = Signal(1e6 * np.sin(2 * np.pi * 7.3 * np.arange(n) / fs), fs, name="S2")
+    s2 = Signal(1e6 * np.sin(2 * np.pi * 7.3 * np.arange(n) / fs), fs, name="S2",
+                title="sine_7Hz")
     results = [compute_noise(white_noise), compute_sinad(s2)]
+    assert "S2 · sine_7Hz (" in results[1].title
     qmd = generate_report(results, title="Bench | test", output_dir=tmp_path, formats=["html"])
     text = qmd.read_text()
     assert "Bench \\| test" not in text.splitlines()[1]  # title stays in YAML
     assert "## Analysed signals" in text and "figures/02_sinad.png" in text
+    assert "| S2 | sine_7Hz |" in text
     assert (qmd.parent / "figures" / "02_sinad.png").exists()
     if shutil.which("quarto"):
         from onthesignal.report import render_report

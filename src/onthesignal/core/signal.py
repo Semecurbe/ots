@@ -75,6 +75,10 @@ class Signal:
         default" (``2**24``).
     name : str, optional
         Name in the session (``S1``, ``S2``...).
+    title : str, optional
+        Human-readable title shown in figure titles, ``list_sig()`` and reports. Signals
+        loaded from a file get the file name without its extension; it can be changed freely
+        (``S1.title = "Bench test, gain 1"``).
 
     Examples
     --------
@@ -99,6 +103,7 @@ class Signal:
         sensitivity: float = 1.0,
         full_scale: float | None = None,
         name: str | None = None,
+        title: str = "",
         source: str = "",
         sha256: str = "",
         metadata: dict | None = None,
@@ -125,12 +130,28 @@ class Signal:
         self.sensitivity = sensitivity
         self.full_scale = full_scale
         self.name = name
+        self.title = title
         self.source = str(source)
         self.sha256 = str(sha256)
         self.history: list[str] = list(history or [])
         self.gaps: list[dict] = list(gaps or [])
 
     # ------------------------------------------------------------------ attributes
+    @property
+    def title(self) -> str:
+        """Human-readable title (file name without extension for loaded signals)."""
+        return self._title
+
+    @title.setter
+    def title(self, value: str | None) -> None:
+        self._title = "" if value is None else str(value).strip()
+
+    @property
+    def label(self) -> str:
+        """Label used in result and figure titles: ``S1 · acquisition_FHZ (RD.SN270.00.FHZ)``."""
+        head = " · ".join(part for part in (self.name or "", self.title) if part)
+        return f"{head} ({self.id})" if head else self.id
+
     @property
     def unit(self) -> str:
         """Physical unit (normalized spelling)."""
@@ -229,6 +250,7 @@ class Signal:
         """Identity used in results and reports (rule R9)."""
         return {
             "name": self.name or "",
+            "title": self.title,
             "id": self.id,
             "source": self.source,
             "sha256": self.sha256,
@@ -284,6 +306,7 @@ class Signal:
         else:
             gaps_text = "none"
         rows = [
+            ("Title", self.title or "—"),
             ("Source", source),
             ("Start → end (UTC)", f"{self.starttime} → {self.endtime}"),
             ("Duration", f"{self.duration:.3f} s · {self.npts} samples"),
@@ -340,6 +363,7 @@ class Signal:
             "sensitivity": self.sensitivity,
             "full_scale": self.full_scale,
             "name": None,
+            "title": self.title,
             "source": self.source,
             "sha256": self.sha256,
             "metadata": dict(self.metadata),
@@ -500,7 +524,10 @@ class Signal:
             warnings.warn(f"{label_b} {note} onto the time grid of {label_a}",
                           OnTheSignalWarning, stacklevel=3)
         history = [*self.history, f"{symbol} {label_b}" + (f" ({note})" if note else "")]
-        return a.copy(data=op(a.data, b), history=history)
+        title = self.title
+        if other.title and other.title != self.title:
+            title = f"{self.title or label_a} {symbol} {other.title}"
+        return a.copy(data=op(a.data, b), history=history, title=title)
 
     def add(self, other: Signal, method: str = "linear") -> Signal:
         """Sample-wise sum on the common time window, interpolating ``other`` if needed."""

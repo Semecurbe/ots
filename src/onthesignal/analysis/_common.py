@@ -71,8 +71,8 @@ def band_title(band: BandResult) -> str:
 
 
 def signal_label(signal: Signal) -> str:
-    """``S1 (RD.SN270.00.FHZ)``."""
-    return f"{signal.name} ({signal.id})" if signal.name else signal.id
+    """``S1 · acquisition_FHZ (RD.SN270.00.FHZ)`` (see :attr:`Signal.label`)."""
+    return signal.label
 
 
 def add_band_values(result: Result, band: BandResult) -> None:

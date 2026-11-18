@@ -44,6 +44,7 @@ def save_signal(signal: Signal, path: str | Path, fmt: str | None = None) -> Pat
         header = "\n".join(
             [
                 f"id: {signal.id}",
+                f"title: {signal.title}",
                 f"starttime: {signal.starttime}",
                 f"sampling_rate: {signal.sampling_rate}",
                 f"unit: {signal.unit}",

@@ -36,6 +36,19 @@ def test_mseed_one_signal_per_channel(tmp_path, session):
     assert list(session.signals) == ["S1", "S2"]
     assert sigs[0].sha256 and sigs[0].unit == "V"
     assert sigs[1].data.dtype == np.float64 and sigs[1].metadata["dtype"] == "int32"
+    assert [s.title for s in sigs] == ["a", "a"]  # file name without extension
+    assert session.list_rows()[0]["Title"] == "a"
+
+
+def test_title_option_overrides_file_name(tmp_path):
+    path = tmp_path / "a.mseed"
+    _write_mseed(path)
+    assert {s.title for s in read(path, title="bench 1")} == {"bench 1"}
+    txt = tmp_path / "scope_run3.csv"
+    txt.write_text("\n".join(f"{i};{-i}" for i in range(20)))
+    assert [s.title for s in read(txt, n_channels=2, fs=10)] == ["scope_run3", "scope_run3"]
+    sigs = read(txt, n_channels=2, fs=10, title=["X axis", "Y axis"])
+    assert [s.title for s in sigs] == ["X axis", "Y axis"]
 
 
 def test_mseed_gap_policies(tmp_path):

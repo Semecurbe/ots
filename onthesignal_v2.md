@@ -184,6 +184,7 @@ Cœur         core (Signal, Result, Param) · io · processing · analysis · se
 | Attribut | Type | Description |
 | --- | --- | --- |
 | `name` | str | Nom dans la session (`S1`, `S2`… par défaut, ou nom choisi) |
+| `title` | str | Titre lisible affiché dans les titres de figures, `list_sig()` et les rapports ; par défaut le nom du fichier sans extension, modifiable (`S1.title = "..."`, option `title=` de `load`) |
 | `network`, `station`, `location`, `channel` | str | Codes NSLC |
 | `id` | str, lecture seule | `NET.STA.LOC.CHA` |
 | `data` | `numpy.ndarray` (float64) | Échantillons bruts (counts) ; le type d'origine est conservé dans `metadata` |
@@ -222,6 +223,7 @@ Exemple de sortie de `S.print()` :
 ```text
 >>> S1.print()
 Signal S1 — RD.SN270.00.FHZ
+  Title              acquisition_FHZ
   Source             acquisition_FHZ.mseed (sha256 3f2a…9c1e)
   Start → end (UTC)  2026-11-17T10:00:00.000 → 2026-11-17T10:10:00.000
   Duration           600.000 s · 600000 samples

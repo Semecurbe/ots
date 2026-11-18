@@ -151,7 +151,8 @@ def load(path: str | Path, fmt: str | None = None, name: str | Sequence[str] | N
     **options
         Format options: ``select``, ``starttime``, ``endtime``, ``gaps`` for miniSEED;
         ``n_channels``, ``time_col``, ``fs``, ``delimiter``, ``decimal``... for text files;
-        ``unit``, ``sensitivity``, ``full_scale``, ``metadata`` for both.
+        ``title`` (default: file name without extension), ``unit``, ``sensitivity``,
+        ``full_scale``, ``metadata`` for both.
 
     Returns
     -------
@@ -209,7 +210,7 @@ def signal_result(signal: Signal, units: str = "physical", t_start: Any = None,
     y = sig.to_physical() if physical else sig.data
     idx, values = minmax_envelope(y, max_points)
     t = sig.times("matplotlib")[idx]
-    r = Result("signal", title=f"{sig.name or ''} {sig.id} — {sig.starttime}".strip(),
+    r = Result("signal", title=f"{sig.label} — {sig.starttime}",
                signals=[sig.identity()], params={"units": units})
     unit = sig.unit if physical else COUNTS
     r.curves["signal"] = Curve(t, values, label=sig.name or sig.id, x_label="Time (UTC)",

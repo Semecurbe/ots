@@ -3,7 +3,17 @@
 All notable changes to this project are documented in this file.
 The project follows [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 0.1.0
+## [Unreleased]
+
+### Added
+
+- `Signal.title`: human-readable title, set by default to the file name without its
+  extension when a file is loaded (`title=` option of `load` / `/load` to choose it, one per
+  channel for text files). It is shown in result and figure titles (`S1 · title (NSLC)`, also
+  available as `Signal.label`), in `list_sig()`, `S.print()`, reports, the AI context and
+  text/CSV export headers, and kept by derived signals.
+
+## [0.1.0]
 
 ### Added
 

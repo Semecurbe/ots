@@ -14,9 +14,9 @@ format:
 
 ## Analysed signals
 
-| Name | Id (NSLC) | Sampling rate | Samples | Unit | Sensitivity | Source | SHA-256 |
-|---|---|---|---|---|---|---|---|
-{% for s in signals %}| {{ s.name | md }} | {{ s.id | md }} | {{ s.sampling_rate }} Hz | {{ s.npts }} | {{ s.unit | md }} | {{ s.sensitivity }} | {{ s.source_name | md }} | {% if s.sha256 %}`{{ s.sha256[:16] }}…`{% else %}—{% endif %} |
+| Name | Title | Id (NSLC) | Sampling rate | Samples | Unit | Sensitivity | Source | SHA-256 |
+|---|---|---|---|---|---|---|---|---|
+{% for s in signals %}| {{ s.name | md }} | {{ s.title | md or "—" }} | {{ s.id | md }} | {{ s.sampling_rate }} Hz | {{ s.npts }} | {{ s.unit | md }} | {{ s.sensitivity }} | {{ s.source_name | md }} | {% if s.sha256 %}`{{ s.sha256[:16] }}…`{% else %}—{% endif %} |
 {% endfor %}
 {% for s in signals if s.gaps %}
 **Gaps in {{ s.name or s.id }}:** {% for g in s.gaps %}{{ g.type }} at {{ g.start }} ({{ "%.3f" | format(g.duration) }} s){% if g.action %}, {{ g.action }}{% endif %}{% if not loop.last %}; {% endif %}{% endfor %}.

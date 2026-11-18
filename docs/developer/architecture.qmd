@@ -62,9 +62,11 @@ src/onthesignal/
 
 ## Data model
 
-- `Signal`: float64 samples in counts, `sampling_rate`, `starttime`, NSLC codes, `unit`,
-  `sensitivity` (unit per count), `full_scale`, `source` + `sha256`, `gaps`, `metadata`,
-  `history`. Operators return new signals.
+- `Signal`: float64 samples in counts, `sampling_rate`, `starttime`, NSLC codes, `title`
+  (file name without extension by default), `unit`, `sensitivity` (unit per count),
+  `full_scale`, `source` + `sha256`, `gaps`, `metadata`, `history`. Operators return new
+  signals. `Signal.label` (`S1 · title (NSLC)`) is the label used in result titles: analyses
+  get it through `analysis._common.signal_label`.
 - `Result`: `kind`, `title`, `signals`, `params`, `values` (`Value`: value, unit, label),
   `curves` (`Curve`: x, y, labels, scales), `tables`, `warnings`, `extra` (rendering hints),
   `meta`. A key `k_phys` holds the physical counterpart of `k`.
