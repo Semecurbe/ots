@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from obspy import Trace, UTCDateTime, read
 
+from onthesignal.core.errors import ParameterError
 from onthesignal.seedlink import Acquisition, filter_streams, parse_streams
 from onthesignal.seedlink.client import selector
 
@@ -155,3 +156,58 @@ def test_realtime_monitor_statistics_and_spectra(tmp_path):
     assert snap.mean == pytest.approx(5, abs=1.5)
     assert snap.spectrum is not None
     assert read(str(tmp_path / "RD.SN270.00.FHZ.mseed"))[0].stats.npts == 3000
+
+
+def test_realtime_monitor_latest_samples_spectra_and_recording_switch(tmp_path):
+    from onthesignal.seedlink.realtime import RealtimeMonitor
+
+    t = np.arange(100) / 100.0
+    traces = [Trace((1000 * np.sin(2 * np.pi * 10 * (t + i))).astype(np.int32),
+                    header={"network": "RD", "station": "SN270", "location": "00",
+                            "channel": "FHZ", "sampling_rate": 100.0, "starttime": T0 + i})
+              for i in range(30)]
+    monitor = RealtimeMonitor(
+        "server", [("RD", "SN270", "00", "FHZ")], window=5, spectral_window=20, mode="stats",
+        client_factory=lambda url, on_data: FakeClient(url, on_data, traces))
+    monitor.start()
+    try:
+        assert wait_for(lambda: monitor.channels["RD.SN270.00.FHZ"].samples == 3000)
+        last, fs, values = monitor.latest(8.0)["RD.SN270.00.FHZ"]
+        assert fs == 100.0 and values.size == 800 and last == T0 + 29.99
+        assert monitor.snapshot()[0].spectrum is None  # mode "stats"
+        for kind in ("fft", "dsp"):
+            f, a = monitor.snapshot(kind)[0].spectrum
+            assert f[np.argmax(a)] == pytest.approx(10.0, abs=0.2)  # one Welch bin
+        with pytest.raises(ParameterError):
+            monitor.snapshot("psd")
+        monitor.set_record_dir(tmp_path)
+        assert monitor.record_dir == tmp_path
+        monitor.set_record_dir(None)
+        assert monitor.record_dir is None and not monitor._files
+    finally:
+        monitor.stop()
+
+
+def wait_for(condition, timeout: float = 5.0) -> bool:
+    end = time.time() + timeout
+    while time.time() < end:
+        if condition():
+            return True
+        time.sleep(0.01)
+    return False
+
+
+def test_obspy_connection_gets_a_timeout_only_while_connecting(monkeypatch):
+    """obspy 1.5: connect() fails with timeout=None; collect() must keep no timeout."""
+    from obspy.clients.seedlink.client.seedlinkconnection import SeedLinkConnection
+
+    from onthesignal.seedlink import client as sl
+
+    seen = []
+    monkeypatch.setattr(SeedLinkConnection, "connect", lambda self: seen.append(self.timeout))
+    connection = sl._connection_class()()
+    connection.connect()
+    assert seen == [sl.CONNECT_TIMEOUT] and connection.timeout is None
+    connection.timeout = 5.0  # an explicit timeout is kept
+    connection.connect()
+    assert seen[-1] == 5.0 and connection.timeout == 5.0

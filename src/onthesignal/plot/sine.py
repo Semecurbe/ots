@@ -44,10 +44,14 @@ def _residual(ax: Any, result: Any) -> None:
     style_axes(ax)
 
 
-def _conditions(result: Any) -> str:
+def _conditions(result: Any, kind: str | None = None) -> str:
     """``Conditions: residual band 0–100 Hz (ideal FFT mask), ENBW 98.5 Hz · 50 Hz and
-    harmonics removed (50, 100 Hz, ±0.5 Hz)``."""
-    p, kind = result.params, result.kind
+    harmonics removed (50, 100 Hz, ±0.5 Hz)``.
+
+    ``kind`` selects the wording (``sinad``, ``sfdr``, ``thd``); it defaults to the result
+    kind, so that each figure of ``dynamic`` can describe its own computation.
+    """
+    p, kind = result.params, kind or result.kind
     band = result.extra.get("band")
     parts = []
     if band:

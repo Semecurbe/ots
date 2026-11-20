@@ -2,6 +2,10 @@
 title: "Acquisition and real time"
 ---
 
+The same acquisition and real-time analysis are available in the web interface, with a
+dashboard of charts (*Acquisition* and *Real time* views, see
+[Web interface](web.qmd#acquisition-and-real-time)).
+
 ## Acquisition to miniSEED
 
 ```bash

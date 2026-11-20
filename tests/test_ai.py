@@ -167,3 +167,13 @@ def test_ollama_context_is_sent_as_num_ctx(monkeypatch):
     config.set("ai.context", "a lot")
     with pytest.raises(ParameterError, match="number of tokens"):
         make_provider(config)
+
+
+def test_local_and_online_providers():
+    from onthesignal.ai.providers import local_provider
+
+    assert local_provider("ollama") and local_provider("ollama", "http://gb10:11434")
+    assert not local_provider("anthropic") and not local_provider("openai")
+    assert local_provider("openai", "http://192.168.1.20:8000/v1")  # vLLM on the bench network
+    assert local_provider("openai", "http://gb10.local:8000/v1")
+    assert not local_provider("openai", "https://api.openai.com/v1")

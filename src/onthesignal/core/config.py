@@ -41,6 +41,23 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "send_raw_data": False,
     },
     "report": {"pdf_engine": "typst", "author": ""},
+    "web": {
+        "host": "127.0.0.1",
+        "port": 8080,
+        "open_browser": True,
+        "tls_cert": "",
+        "tls_key": "",
+        "allowed_hosts": [],
+        "code_execution": True,
+        "scrollback": 10000,
+        "roots": ["."],
+        "upload_dir": "data/uploads",
+        "upload_max_mb": 1024,
+        "editor_max_mb": 5,
+        "theme": "auto",
+        "points_per_pixel": 2,
+        "autosave": False,
+    },
     "paths": {"scripts": "scripts", "reports": "reports", "state": ".onthesignal"},
 }
 

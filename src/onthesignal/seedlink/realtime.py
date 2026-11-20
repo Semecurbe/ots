@@ -165,8 +165,39 @@ class RealtimeMonitor:
                 fh.close()
             self._files.clear()
 
-    def snapshot(self) -> list[ChannelSnapshot]:
-        """Current statistics (counts) and spectrum of every channel."""
+    def set_record_dir(self, record_dir: str | Path | None) -> None:
+        """Start (folder) or stop (``None``) recording the received records while running."""
+        with self._lock:
+            if record_dir is None:
+                for fh in self._files.values():
+                    fh.close()
+                self._files.clear()
+            self.record_dir = Path(record_dir) if record_dir else None
+
+    def latest(self, seconds: float) -> dict[str, tuple[UTCDateTime | None, float, np.ndarray]]:
+        """Last ``seconds`` of every channel: time of the last sample, sampling rate, samples.
+
+        The samples are in counts; gaps are NaN. A channel without data yet has an empty array.
+        """
+        out: dict[str, tuple[UTCDateTime | None, float, np.ndarray]] = {}
+        with self._lock:
+            for ch in self.channels.values():
+                if ch.buffer is None or not ch.sampling_rate:
+                    out[ch.id] = (None, 0.0, np.empty(0))
+                else:
+                    n = int(math.ceil(seconds * ch.sampling_rate))
+                    out[ch.id] = (ch.last_time, ch.sampling_rate, ch.buffer.last(n).copy())
+        return out
+
+    def snapshot(self, spectrum: str | None = None) -> list[ChannelSnapshot]:
+        """Current statistics (counts) and spectrum of every channel.
+
+        ``spectrum`` overrides the mode of the monitor for this call: ``"stats"`` (none),
+        ``"fft"`` (amplitude spectrum) or ``"dsp"`` (Welch PSD), in counts.
+        """
+        mode = self.mode if spectrum is None else spectrum
+        if mode not in ("stats", "fft", "dsp"):
+            raise ParameterError("spectrum must be 'stats', 'fft' or 'dsp'")
         out = []
         with self._lock:
             states = [(ch.id, ch.sampling_rate, ch.samples, ch.latency(), ch.gaps,
@@ -185,13 +216,13 @@ class RealtimeMonitor:
                 float(np.std(valid)) if valid.size else None,
                 float(np.ptp(valid)) if valid.size else None,
             )
-            if self.mode != "stats":
+            if mode != "stats":
                 spec = data[-int(self.spectral_window * fs):]
                 if np.isnan(spec).any():
                     snap.note = "gap in the spectral window"
                 elif spec.size >= 64:
                     spec = spec - np.mean(spec)
-                    if self.mode == "fft":
+                    if mode == "fft":
                         f, a, _ = amplitude_spectrum(spec, fs, "hann", "amplitude")
                     else:
                         f, a, _ = welch_psd(spec, fs)

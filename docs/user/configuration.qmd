@@ -41,6 +41,21 @@ author = ""
 scripts = "scripts"
 reports = "reports"
 state = ".onthesignal"
+
+[web]                      # web interface (onthesignal web)
+host = "127.0.0.1"         # listen address; another address exposes the server (no login)
+port = 8080
+open_browser = true
+allowed_hosts = []         # extra host names accepted in the Host header
+code_execution = true      # false: no Python terminal, script or AI code execution
+scrollback = 10000         # lines kept in the Python terminal
+roots = ["."]              # folders reachable from the explorer, the editor and the batches
+                           # (relative to the project, or absolute: [".", "/data/bench"])
+upload_dir = "data/uploads"
+upload_max_mb = 1024
+editor_max_mb = 5
+tls_cert = ""              # certificate and key for HTTPS
+tls_key = ""
 ```
 
 Parameter precedence: value given in the call > signal attribute (`S.full_scale`) >

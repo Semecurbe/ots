@@ -5,6 +5,7 @@
 | v1 | 2026-11 | Expression initiale du besoin (`onthesignal.md`) |
 | v2 | 2026-11-17 | Version corrigée, structurée et précisée en vue du développement |
 | v2.1 | 2026-11-17 | Intégration des décisions sur les points ouverts (§22) |
+| v2.2 | 2026-11-20 | Phase 2 : renvoi vers son cahier des charges, [`onthesignal_web.md`](onthesignal_web.md), et NiceGUI 4 (§1, §4.1, §21.2) |
 
 ## Lecture du document
 
@@ -53,7 +54,7 @@ Utilisateurs visés : ingénieurs et techniciens en instrumentation sismique, à
 Le projet comporte deux phases :
 
 1. **Phase 1 — objet du présent document** : application en ligne de commande, sous forme de console interactive dans un terminal Linux.
-2. **Phase 2** : interface web (NiceGUI + µPlot), qui fera l'objet d'un cahier des charges distinct. La phase 1 doit dès maintenant respecter les règles d'architecture du §4, afin que le cœur de calcul soit réutilisé sans modification par l'interface web.
+2. **Phase 2** : interface web (NiceGUI 4 + µPlot), objet d'un cahier des charges distinct, [`onthesignal_web.md`](onthesignal_web.md). La phase 1 doit dès maintenant respecter les règles d'architecture du §4, afin que le cœur de calcul soit réutilisé sans modification par l'interface web.
 
 Le logiciel est livré avec une **documentation complète des algorithmes et du fonctionnement** (§18). Cette documentation est un livrable à part entière, au même titre que le code.
 
@@ -146,7 +147,7 @@ Le logiciel est livré avec une **documentation complète des algorithmes et du 
 | Rapports | Quarto (outil externe), format `.qmd` | Imposé |
 | Documentation | Quarto (site web, export PDF possible) + quartodoc (référence de l'API) | Imposé |
 | IA | SDK `anthropic`, `openai`, `ollama` (dépendances optionnelles) | Recommandé |
-| Web (phase 2) | NiceGUI + µPlot | Imposé pour la phase 2 |
+| Web (phase 2) | NiceGUI 4 + µPlot (versions : `onthesignal_web.md` §3.1) | Imposé pour la phase 2 |
 
 ### 4.2 Couches logicielles
 
@@ -1061,7 +1062,7 @@ Chaque lot livre son code, ses tests, ses pages d'algorithmes et sa documentatio
 | 6 | Mesures (`frequency`, `period`, `delay50`), `coherence`, `spectrogram` | P2 |
 | 7 | Temps réel SeedLink | P2 |
 | 8 | Assistant IA : fournisseurs, outils, fichier `agent.md`, `/init`, contexte, génération de scripts | P2 |
-| Phase 2 | Interface web NiceGUI + µPlot — cahier des charges séparé | — |
+| Phase 2 | Interface web NiceGUI 4 + µPlot — cahier des charges séparé, `onthesignal_web.md` | — |
 
 ## 22. Décisions sur les points ouverts
 

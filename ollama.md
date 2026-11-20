@@ -138,6 +138,11 @@ back to Claude: `/model anthropic claude-opus-5-5` (the key must be in `ANTHROPI
 Then use the assistant as usual: `/ai` to toggle the AI mode, or `/ai <question>` for a single
 question.
 
+The web interface (`onthesignal web`) uses the same `[ai]` configuration. The tune button of its
+chat changes the provider, the model, the server URL and the context for the session; with
+Ollama the chat does not ask for consent before sending the summaries, as they stay on your
+network.
+
 ## 5. FP8 and 1M tokens: vLLM instead of Ollama
 
 The official FP8 build, `Qwen/Qwen3.8-27B-FP8`, is natively 262 144 tokens and can be extended

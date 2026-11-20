@@ -64,6 +64,11 @@ def plot_crest(result, fig): ...
 or `no_figure("crest_factor")` for a table-only result. Use the style helpers
 (`style_axes`, `info_box`, `legend`, palette `SERIES`).
 
+The web interface draws the result with the generic layout (one panel per quantity, every
+value in the results panel). For a dedicated chart, markers or key figures, add a layout in
+`plot/layouts.py` (`@layout("crest_factor")`, returning a `FigureSpec`); see
+[Web interface](web-phase.qmd#figures).
+
 ## 4. Tests
 
 Add validation cases on synthetic signals with known answers to `tests/` (and to the

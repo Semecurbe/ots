@@ -20,6 +20,8 @@ AXIS = "#c3c2b7"
 NEUTRAL_WASH = "#f0efec"
 #: Frequencies removed from (or excluded by) a computation, e.g. the mains lines.
 REMOVED = SERIES[7]
+#: Sequential single-hue ramp (light → dark) for magnitudes: spectrogram colors.
+SEQUENTIAL_STOPS = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
 LINE_W = 1.5
 THIN_W = 0.8

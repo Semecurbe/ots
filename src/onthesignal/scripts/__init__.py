@@ -162,7 +162,8 @@ def expand_files(patterns: Sequence[str]) -> list[Path]:
 
 def batch(target: str | Callable, files: Sequence[str], out: str | Path | None = None,
           params_decl: Sequence[Param] | None = None, read_options: dict | None = None,
-          **params: Any) -> list[dict]:
+          on_progress: Callable[[int, int, Path | None, list[dict]], None] | None = None,
+          should_stop: Callable[[], bool] | None = None, **params: Any) -> list[dict]:
     """Run an analysis or a script on every signal of every file and aggregate the values.
 
     Parameters
@@ -176,6 +177,12 @@ def batch(target: str | Callable, files: Sequence[str], out: str | Path | None =
         Output table (``.csv`` or ``.json``).
     read_options : dict, optional
         Options passed to the file reader (``unit``, ``sensitivity``, ``n_channels``...).
+    on_progress : callable, optional
+        ``on_progress(done, total, path, rows)`` before each file (``path`` is the file about
+        to be read) and once at the end (``path`` is ``None``).
+    should_stop : callable, optional
+        Checked before each file: when it returns true, the batch stops there and returns the
+        rows obtained so far.
 
     Returns
     -------
@@ -206,7 +213,14 @@ def batch(target: str | Callable, files: Sequence[str], out: str | Path | None =
                 return script.run([sig], **p)
 
     rows: list[dict] = []
-    for path in expand_files(files):
+    paths = expand_files(files)
+    processed = 0
+    for path in paths:
+        if should_stop is not None and should_stop():
+            break
+        if on_progress is not None:
+            on_progress(processed, len(paths), path, rows)
+        processed += 1
         try:
             signals = read(path, **(read_options or {}))
         except OnTheSignalError as exc:
@@ -225,9 +239,57 @@ def batch(target: str | Callable, files: Sequence[str], out: str | Path | None =
             except Exception as exc:  # one failing signal must not stop the batch
                 row["error"] = str(exc)
             rows.append(row)
+    if on_progress is not None:
+        on_progress(processed, len(paths), None, rows)
     if out is not None:
         write_table(rows, out)
     return rows
+
+
+def batch_columns(rows: Sequence[dict]) -> list[str]:
+    """Columns of a batch table: file, signal, the values in first-seen order, warnings, error."""
+    keys: list[str] = ["file", "signal"]
+    for row in rows:
+        for k in row:
+            if k not in keys and k not in ("units", "warnings", "error"):
+                keys.append(k)
+    return [*keys, "warnings", "error"]
+
+
+def batch_summary(rows: Sequence[dict], target: str, files: Sequence[str],
+                  params: dict | None = None) -> Result:
+    """Result of kind ``batch`` holding the table of a batch, for a global report (§16.2).
+
+    The table has the same columns on every row (empty cells where a value is missing); the
+    header gives the units (``rms [counts]``).
+    """
+    units: dict[str, str] = {}
+    for row in rows:
+        units.update(row.get("units", {}))
+    columns = batch_columns(rows)
+    table = []
+    for row in rows:
+        line: dict[str, Any] = {}
+        for k in columns:
+            value = row.get(k, "")
+            if k == "file":
+                value = Path(str(value)).name
+            if isinstance(value, list):
+                value = ", ".join(str(v) for v in value)
+            line[f"{k} [{units[k]}]" if k in units else k] = "" if value is None else value
+        table.append(line)
+    failures = sum(1 for r in rows if r.get("error"))
+    result = Result("batch", params={"target": target, "files": " ".join(files),
+                                     **(params or {})})
+    result.title = f"Batch {target} — {' '.join(files)}"
+    result.add("n_files", len({r['file'] for r in rows}), "", "Files")
+    result.add("n_signals", len(rows), "", "Signals processed")
+    result.add("n_failures", failures, "", "Failures")
+    result.tables["batch"] = table
+    for r in rows:
+        if r.get("error"):
+            result.warn(f"{Path(str(r['file'])).name} {r.get('signal', '')}: {r['error']}")
+    return result
 
 
 def write_table(rows: list[dict], out: str | Path) -> Path:

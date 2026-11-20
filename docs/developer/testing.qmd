@@ -3,9 +3,10 @@ title: "Tests and validation"
 ---
 
 ```bash
-.venv/bin/python -m pytest            # all tests (about one minute)
+.venv/bin/python -m pytest            # all tests (about ten seconds)
 .venv/bin/ruff check src tests
 .venv/bin/mypy src
+ONTHESIGNAL_E2E=1 .venv/bin/python -m pytest tests/test_web_e2e.py   # browser tests
 cd docs && QUARTO_PYTHON=../.venv/bin/python ../.venv/bin/quartodoc build \
         && QUARTO_PYTHON=../.venv/bin/python quarto render
 ```
@@ -16,10 +17,14 @@ cd docs && QUARTO_PYTHON=../.venv/bin/python ../.venv/bin/quartodoc build \
 | `tests/test_io.py` | miniSEED gap policies (V-15), text files (V-16), export |
 | `tests/test_analysis.py` | noise, band limitation, LNM, sine fit, SINAD, ENOB, THD, SFDR, dynamic (V-01 to V-09, V-13) |
 | `tests/test_measures.py` | crossings, frequency, period, delay, coherence, spectrogram (V-10 to V-12) |
+| `tests/test_synthetic.py` | test signals: theoretical SINAD of an ideal quantized sine, amplitude options, harmonics, mains, noise color and seeds |
 | `tests/test_cli.py` | console: Python input, `/` commands, forms, completion |
 | `tests/test_scripts_reports.py` | script template, batches, standalone scripts, Quarto reports |
 | `tests/test_acquisition.py` | SeedLink acquisition and real time with a fake client |
 | `tests/test_ai.py` | assistant with a scripted fake provider, agent.md, `/init`, message conversions |
+| `tests/test_web_core.py` | session events, result names, layouts of every analysis, results panel, decimation, console hooks (no NiceGUI needed) |
+| `tests/test_web.py` | web interface: security middleware, chart data, shared state, Python terminal engine (skipped without the `[web]` extra) |
+| `tests/test_web_e2e.py` | browser tests with Playwright and Google Chrome, opt-in: `pip install -e ".[e2e]"`, then `ONTHESIGNAL_E2E=1` |
 
 Validation tests use synthetic signals whose answer is known analytically (white noise of known
 σ, ideal quantization, sines with known harmonics and spurs, ramps with sub-sample delays) and

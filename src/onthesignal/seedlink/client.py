@@ -12,6 +12,8 @@ from ..core.errors import ParameterError
 Stream = tuple[str, str, str, str]  # (network, station, location, channel)
 
 DEFAULT_PORT = 18000
+#: Time allowed to open the connection to the server (seconds).
+CONNECT_TIMEOUT = 30.0
 
 
 def server_url(server: str, port: int | None = None) -> str:
@@ -59,13 +61,52 @@ def filter_streams(streams: Sequence[Stream], patterns: Sequence[str]) -> list[S
     return chosen
 
 
+def _connection_class() -> type:
+    """``SeedLinkConnection`` whose ``connect()`` always has a time limit.
+
+    obspy 1.5 creates the connection of ``EasySeedLinkClient`` without a timeout, and
+    ``SeedLinkConnection.connect()`` then compares the elapsed time with ``None``: the
+    connection fails with "'<' not supported between instances of 'float' and 'NoneType'".
+    The timeout cannot simply be set on the connection, since ``collect()`` uses the same
+    attribute to end the stream when no packet arrives in time (a low-rate channel would be
+    cut). It is therefore given to ``connect()`` only, which also covers obspy's own
+    reconnections.
+    """
+    from obspy.clients.seedlink.client.seedlinkconnection import SeedLinkConnection
+
+    class Connection(SeedLinkConnection):  # type: ignore[misc]
+        timeout: float | None
+
+        def connect(self) -> None:
+            saved = self.timeout
+            if saved is None:
+                self.timeout = CONNECT_TIMEOUT
+            try:
+                super().connect()
+            finally:
+                self.timeout = saved
+
+    return Connection
+
+
+def _easy_client(url: str, on_data: Callable[[Any], None]) -> Any:
+    """``obspy...easyseedlink.create_client`` with the connection of :func:`_connection_class`."""
+    from obspy.clients.seedlink.easyseedlink import EasySeedLinkClient
+
+    client = EasySeedLinkClient(url, autoconnect=False)
+    connection = _connection_class()()
+    connection.set_sl_address(f"{client.server_hostname}:{client.server_port}")
+    client.conn = connection
+    client.on_data = on_data
+    client.connect()
+    return client
+
+
 def create(server: str, port: int | None, on_data: Callable[[Any], None],
            factory: Callable | None = None) -> Any:
     """Create an EasySeedLink client (``factory`` replaces it in tests)."""
     if factory is None:
-        from obspy.clients.seedlink.easyseedlink import create_client
-
-        factory = create_client
+        factory = _easy_client
     return factory(server_url(server, port), on_data=on_data)
 
 

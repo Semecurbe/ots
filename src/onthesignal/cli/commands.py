@@ -110,11 +110,18 @@ def run_analysis(console: OnTheSignalConsole, cmd: Command, positional: list[str
     params: dict[str, Any] = dict(kv)
     display_opts = {k: params.pop(k) for k in ("show", "save") if k in params}
     if not params and "defaults" not in flags and console.forms:
-        from .forms import ask_params
-
         declared = [p for p in cmd.params if p.name != "report"]
         defaults = resolve_params(declared, {}, signals[0], session.config, cmd.name)
-        params = ask_params(cmd.params, defaults, console.ask, skip=cmd.signal_params)
+        param_form = getattr(console, "param_form", None)
+        if param_form is not None:
+            chosen = param_form(cmd, signals, defaults)
+            if chosen is None:
+                raise ParameterError(f"/{cmd.name} cancelled")
+            params = dict(chosen)
+        else:
+            from .forms import ask_params
+
+            params = ask_params(cmd.params, defaults, console.ask, skip=cmd.signal_params)
     show = display_opts.get("show")
     api.run(cmd.name, *names, show=None if show is None else show.lower() != "false",
             save=display_opts.get("save"), **params)
@@ -298,6 +305,11 @@ def cmd_edit_script(console: OnTheSignalConsole, pos: list[str], *_: Any) -> Non
 
     name = pos[0] if pos else console.ask("Script name", "").strip()
     path = create_script(name)
+    edit_handler = getattr(console, "edit_handler", None)
+    if edit_handler is not None:  # editor of the web interface
+        edit_handler(path)
+        console.display.info(f"{path} opened in the editor — run it with /run_script {name} <S>")
+        return
     while True:
         open_in_editor(path, console.session.config)
         error = check_syntax(path)
@@ -425,6 +437,9 @@ def cmd_config(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str], 
             config.set(key, value)
         return
     for section, values in config.to_dict().items():
+        if not isinstance(values, dict):  # key outside any section (e.g. another program's)
+            console.display.info(f"{section} = {values!r}")
+            continue
         console.display.info(f"[bold]\\[{section}][/bold]", markup=True)
         for key, value in values.items():
             console.display.info(f"  {key} = {value!r}")
@@ -445,6 +460,10 @@ def cmd_clear(console: OnTheSignalConsole, *_: Any) -> None:
 
 @slash("quit", "Quit onthesignal", "/quit")
 def cmd_quit(console: OnTheSignalConsole, *_: Any) -> None:
+    quit_handler = getattr(console, "quit_handler", None)
+    if quit_handler is not None:
+        quit_handler()
+        return
     console.running = False
 
 
@@ -454,6 +473,10 @@ def cmd_ai(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str], *_: 
     question = " ".join([*pos, *(f"{k}={v}" for k, v in kv.items())]).strip()
     if question:
         console.ask_ai(question)
+        return
+    if getattr(console, "ai_handler", None) is not None:
+        console.display.info("The AI chat is in the right-hand panel: type /ai <question> here "
+                             "to send it a question.")
         return
     console.mode = "python" if console.mode == "ai" else "ai"
     console.display.info(
@@ -474,6 +497,10 @@ def cmd_context(console: OnTheSignalConsole, *_: Any) -> None:
     from ..ai.context import edit_context_path
     from .editor import open_in_editor
 
+    edit_handler = getattr(console, "edit_handler", None)
+    if edit_handler is not None:
+        edit_handler(edit_context_path())
+        return
     open_in_editor(edit_context_path(), console.session.config)
 
 

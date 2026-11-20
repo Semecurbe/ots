@@ -41,6 +41,10 @@ setup with a GB10 and with small local models.
 | `/ai_script <name> "<description>"` | generate a script from the template; review it with `/edit_script` |
 | `/gen_ai_doc` | regenerate `docs/ai/agent.md` |
 
+In the web interface, the assistant is the chat panel on the right: tool calls appear as cards,
+confirmations as *Allow* / *Deny* buttons, and the tune button changes the provider, the model,
+the server URL and the context for the session ([Web interface](web.qmd#ai-chat)).
+
 ## What the model receives
 
 - rules and conventions, and the list of functions with "when to use" phrases (from
@@ -55,6 +59,8 @@ setup with a GB10 and with small local models.
 - Running a script, writing a report, running Python code proposed by a model without tool
   calling: always asked first, the code being shown.
 - No system command is ever run. Every AI action is logged in the session history.
+- In the web interface, the first request to an online provider (Claude, ChatGPT) asks for
+  your agreement to send it the summaries.
 - With Ollama everything stays on your machine.
 
 ## Limits

@@ -6,7 +6,8 @@ title: "Developer guide"
 - [Adding an analysis](add-analysis.qmd): the checklist
 - [Conventions](conventions.qmd): code, docstrings, errors, logging, versions
 - [Tests and validation](testing.qmd): running and extending the test suite
-- [Web phase](web-phase.qmd): what the phase-1 design already prepares
+- [Web interface](web-phase.qmd): `onthesignal.web`: threads, Python terminal, figures,
+  security, NiceGUI 4, tests
 
 Definition of done for any feature: code following R1–R9 and passing `ruff` and `mypy`;
 complete docstrings; unit and validation tests passing; algorithm page written (for any

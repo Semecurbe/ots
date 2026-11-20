@@ -2,7 +2,8 @@
 
 * ``onthesignal [files...]`` — interactive console, optionally loading files;
 * ``onthesignal run script.py [args...]`` — run a standardized script non-interactively;
-* ``onthesignal acq ...`` — SeedLink acquisition (see ``onthesignal acq --help``).
+* ``onthesignal acq ...`` — SeedLink acquisition (see ``onthesignal acq --help``);
+* ``onthesignal web [files...]`` — web interface in the browser (``[web]`` dependencies).
 """
 
 from __future__ import annotations
@@ -21,6 +22,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ..seedlink.acquisition import main as acq_main
 
         return acq_main(argv[1:])
+    if argv and argv[0] == "web":
+        from ..web import main as web_main
+
+        return web_main(argv[1:])
     if argv and argv[0] == "rt":
         from ..seedlink.realtime import main as rt_main
 
@@ -35,7 +40,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="onthesignal",
         description="Signal processing console for seismic acquisition chain characterization.",
-        epilog="Subcommands: 'onthesignal run script.py ...', 'onthesignal acq ...'.",
+        epilog="Subcommands: 'onthesignal run script.py ...', 'onthesignal acq ...', "
+               "'onthesignal web ...'.",
     )
     parser.add_argument("files", nargs="*", help="files loaded at start-up (miniSEED, text)")
     parser.add_argument("--version", action="version", version=f"onthesignal {__version__}")

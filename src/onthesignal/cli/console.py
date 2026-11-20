@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import ast
+import inspect
 import os
+import re
 import shlex
 import sys
 import time
@@ -28,6 +30,7 @@ from .forms import prompt_ask
 
 PROMPT = "ots> "
 AI_PROMPT = "ai> "
+_HELP_QUERY = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*)\s*\?$")
 
 
 def _matplotlib_inputhook(context: Any) -> None:
@@ -59,25 +62,77 @@ class OnTheSignalConsole:
         their own).
     forms : bool
         Open parameter forms when a command is typed without parameters.
+    session : Session, optional
+        Existing session to work on (the web interface shares its session with its terminal).
+    display : ConsoleDisplay, optional
+        Text output (the web terminal writes to the browser instead of the standard output).
+    install_display : bool
+        Install the console display as ``session.display_handler`` (False when another user
+        interface already displays the results).
+
+    Attributes
+    ----------
+    param_form : callable, optional
+        ``param_form(command, signals, defaults) -> dict | None`` replaces the text forms
+        (graphical form of the web interface); ``None`` cancels the command.
+    ai_handler : callable, optional
+        ``ai_handler(question)`` receives ``/ai`` questions (chat of the web interface).
+    edit_handler : callable, optional
+        ``edit_handler(path)`` opens a file for ``/edit_script`` and ``/context`` instead of
+        the terminal editor (editor of the web interface).
+    quit_handler : callable, optional
+        Replaces ``/quit`` (the web terminal cannot quit the server).
     """
 
     def __init__(self, files: Sequence[str] = (), config: Config | None = None,
-                 ask: Callable[[str, str], str] | None = None, forms: bool = True) -> None:
-        self.session = Session(config=config or Config.load(), interactive=True)
-        set_session(self.session)
-        self.display = ConsoleDisplay(self.session)
-        self.session.display_handler = self.display
+                 ask: Callable[[str, str], str] | None = None, forms: bool = True,
+                 session: Session | None = None, display: ConsoleDisplay | None = None,
+                 install_display: bool = True) -> None:
+        self.session = session or Session(config=config or Config.load(), interactive=True)
+        if session is None:
+            set_session(self.session)
+        self.display = display or ConsoleDisplay(self.session)
+        if install_display:
+            self.session.display_handler = self.display
         self.ask = ask or prompt_ask
         self.forms = forms
+        self.param_form: Callable[..., dict | None] | None = None
+        self.ai_handler: Callable[[str], None] | None = None
+        self.edit_handler: Callable[[Path], None] | None = None
+        self.quit_handler: Callable[[], None] | None = None
         self.debug = False
         self.running = True
         self.mode = "python"
         self.assistant: Any = None
         self.known: set[str] = set()
         self.ns: dict[str, Any] = self._namespace()
-        warnings.showwarning = self._show_warning
+        self.sync()
+        if install_display:
+            warnings.showwarning = self._show_warning
         for path in files:
             self.execute(f"/load {shlex.quote(path)} --defaults")
+
+    # ------------------------------------------------------------------ user dialogue
+    # These methods make the console a "user host" for the assistant (UserHost protocol).
+    def info(self, text: str) -> None:
+        self.display.info(text)
+
+    def warning(self, text: str) -> None:
+        self.display.warning(text)
+
+    def error(self, text: str) -> None:
+        self.display.error(text)
+
+    def markdown(self, text: str) -> None:
+        from rich.markdown import Markdown
+
+        self.display.console.print(Markdown(text))
+
+    def confirm(self, question: str, details: str = "") -> bool:
+        if details:
+            self.display.info(details)
+        answer = self.ask(f"{question} (y/N)", "n")
+        return answer.strip().lower() in ("y", "yes", "o", "oui")
 
     # ------------------------------------------------------------------ namespace
     def _namespace(self) -> dict[str, Any]:
@@ -98,12 +153,30 @@ class OnTheSignalConsole:
         return ns
 
     def sync(self) -> None:
-        """Synchronize console variables and session signals (both directions)."""
+        """Synchronize console variables and session signals and results (both directions).
+
+        Results are available under their session names (``R1``, ``R2``...) unless a user
+        variable already holds that name.
+        """
+        bound = {id(v) for k, v in self.ns.items() if isinstance(v, Signal) and k[:1] != "_"}
         for name, sig in list(self.session.signals.items()):
-            if self.ns.get(name) is not sig and not (name in self.known and name not in self.ns):
-                self.ns[name] = sig
+            if self.ns.get(name) is sig:
+                continue
+            if name in self.known and name not in self.ns:
+                continue  # deleted by the user (del S3): removed from the session below
+            if name not in self.known and id(sig) in bound:
+                continue  # S5 = make_noise(...): the variable name wins over S3
+            self.ns[name] = sig
         self.session.sync_namespace(self.ns)
         self.known = set(self.session.signals)
+        names = {r.name: r for r in self.session.results if r.name}
+        for name, result in names.items():
+            current = self.ns.get(name)
+            if current is None or (isinstance(current, Result) and current is not result):
+                self.ns[name] = result
+        for name in [k for k, v in self.ns.items() if isinstance(v, Result)]:
+            if re.fullmatch(r"R\d+", name) and name not in names:
+                del self.ns[name]
 
     def _show_warning(self, message: Any, category: type, filename: str, lineno: int,
                       file: Any = None, line: str | None = None) -> None:
@@ -119,11 +192,14 @@ class OnTheSignalConsole:
         text = text.strip()
         if not text:
             return
+        self.sync()  # signals loaded by another interface (web) become variables first
         try:
             if text.startswith("/"):
                 commands.execute(self, text)
             elif self.mode == "ai":
                 self.ask_ai(text)
+            elif _HELP_QUERY.match(text):
+                self.show_help(_HELP_QUERY.match(text).group(1))  # type: ignore[union-attr]
             else:
                 self.run_python(text)
         except KeyboardInterrupt:
@@ -136,6 +212,17 @@ class OnTheSignalConsole:
                 self.display.info(traceback.format_exc())
         finally:
             self.sync()
+            self.session.touch()
+
+    def show_help(self, expression: str) -> None:
+        """``noise?`` or ``S1.slice?``: signature and documentation of an object."""
+        obj = eval(compile(expression, "<help>", "eval"), self.ns)  # noqa: S307 (user console)
+        try:
+            signature = f"{expression}{inspect.signature(obj)}"
+        except (TypeError, ValueError):
+            signature = f"{expression}: {type(obj).__name__}"
+        doc = inspect.getdoc(obj) or "No documentation."
+        self.display.info(f"{signature}\n\n{doc}")
 
     def run_python(self, source: str) -> None:
         tree = ast.parse(source, mode="exec")
@@ -152,6 +239,9 @@ class OnTheSignalConsole:
                 self.display.info(repr(value))
 
     def ask_ai(self, text: str) -> None:
+        if self.ai_handler is not None:
+            self.ai_handler(text)
+            return
         from ..ai import get_assistant
 
         if self.assistant is None:

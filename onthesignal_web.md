@@ -6,6 +6,9 @@
 | v1.1 | 2026-11-20 | Terminal : terminal Python relié aux signaux de la session, à la place du shell du système (§10) |
 | v1.2 | 2026-11-20 | Encart listant tous les objets, affichés d'un clic (§6.1) ; résultats propres à chaque fonction et mesure sous les graphiques (§7.5) |
 | v1.3 | 2026-11-20 | Décisions sur les points ouverts (§17) : propositions, priorités et ordre des lots validés ; pas d'authentification |
+| v1.4 | 2026-11-20 | Passage à NiceGUI 4 (§3.1) : versions figées des bibliothèques, navigateurs pris en charge (§14) |
+| v1.5 | 2026-11-20 | Lot W8 réalisé : précisions sur le zoom à la molette (§5.1), le spectrogramme (§5.4), la comparaison (§7.6), le temps réel (§8.2) et les lots (§8.5) ; adaptations du code (annexe B) |
+| v1.6 | 2026-11-20 | Navigation dans les graphiques comme dans matplotlib (§5.1) : vue complète, vues précédente et suivante, modes zoom et déplacement ; marge transmise autour de la fenêtre d'un tracé temporel (§5.2) |
 
 ## Lecture du document
 
@@ -111,19 +114,20 @@ Une instance du serveur sert **un utilisateur, un projet et une session**. Ce n'
 
 | Usage | Choix | Statut |
 | --- | --- | --- |
-| Interface web | NiceGUI 3.x (≥ 3.15) | Imposé |
+| Interface web | NiceGUI 4.x (≥ 4.0) | Imposé |
 | Graphiques interactifs | µPlot 1.6 (≥ 1.6.32) | Imposé |
 | Éditeur de texte | Monaco Editor (≥ 0.56) | Imposé |
-| Terminal Python | moteur de la console de la v2 (prompt_toolkit) sur un pseudo-terminal, affiché par xterm.js (élément `ui.xterm` de NiceGUI) | Recommandé |
+| Terminal Python | moteur de la console de la v2 (prompt_toolkit) sur un pseudo-terminal, affiché par xterm.js 6 (élément `ui.xterm` de NiceGUI) | Recommandé |
 | Complétion Python (éditeur et terminal) | Jedi (`jedi.Interpreter`, qui voit les objets de la session) | Recommandé |
 | Diagnostics Python | ruff | Recommandé |
 | Figures des rapports | matplotlib (rendu côté serveur, inchangé) | Imposé |
 | Rapports | Quarto | Imposé |
 
-- Versions vérifiées en novembre 2026 ; les versions exactes sont figées au lot W0.
+- Versions vérifiées en novembre 2026 et figées au lot W0 : NiceGUI 4.0 (passage de la 3.19 à la 4.0 le 2026-11-20), qui apporte Quasar 2.35, Vue 3.5 et xterm.js 6 ; µPlot 1.6.32 et Monaco 0.56.0, embarqués (`web/static/vendor/VENDOR.md`).
+- NiceGUI 4 demande Python ≥ 3.11, version déjà imposée par la v2 (v2 §4.1), et des navigateurs récents (§14). Ses changements de comportement (exception `CancelledError` de `run.io_bound`, identifiants `ng-…` des éléments, `ui.tab` obligatoirement dans `ui.tabs`, fond de xterm.js 6…) sont décrits dans la documentation développeur (`docs/developer/web-phase.qmd`).
 - Toutes les bibliothèques JavaScript sont **embarquées dans le paquet** (versions figées, licences jointes) et servies par l'application : aucun CDN, fonctionnement hors ligne (v2 §20).
 - Monaco est chargé à la première ouverture d'un éditeur, pas au démarrage.
-- `pip install -e ".[web]"` installe NiceGUI, Jedi et ruff (la dépendance optionnelle `web` existe déjà dans `pyproject.toml`).
+- `pip install -e ".[web]"` installe NiceGUI 4 et Jedi (`web = ["nicegui>=4.0,<5", "jedi>=0.19"]` dans `pyproject.toml`) ; ruff y sera ajouté avec les diagnostics de l'éditeur (P2, lot W9).
 
 ### 3.2 Couches logicielles
 
@@ -280,7 +284,8 @@ Un composant unique affiche une `FigureSpec` (§5.3) :
 - axes linéaires ou logarithmiques, libellés avec leurs unités ;
 - légende toujours présente dès deux séries, avec la valeur sous le curseur ; un clic sur une entrée masque ou affiche la série ;
 - curseur en croix avec lecture des coordonnées dans les unités des axes ;
-- zoom par sélection rectangulaire, retour à la vue complète par double-clic ; zoom à la molette : P2 ;
+- zoom par sélection rectangulaire, retour à la vue complète par double-clic ; zoom à la molette (P2) avec la touche Ctrl, autour du curseur : la molette seule fait défiler la zone de travail, qui contient aussi les résultats ;
+- barre d'outils de navigation sur chaque graphique, comme dans les fenêtres matplotlib : vue complète, vue précédente et vue suivante (chaque zoom ou déplacement peut être annulé puis rétabli), mode « zoom » (glisser sur un intervalle, mode par défaut) et mode « déplacement » (glisser le graphique le long de l'axe des abscisses) ; dans les deux modes, le bouton du milieu et Maj + molette déplacent la vue ;
 - repères verticaux (raies secteur supprimées en tirets rouges, harmoniques H2, H3…, raie parasite du SFDR, fondamentale), lignes horizontales (0 dB), zones (bande d'étude, trous), remplissages (domaine sous le NLNM) ;
 - annotations : conditions de calcul au-dessus du panneau concerné ; les résultats sont affichés sous le graphique (§7.5), **jamais en surimpression des données** (en phase 1, l'encadré matplotlib masquait la raie à 50 Hz) ;
 - styles des séries (épaisseur, tirets, transparence) et couleurs désignées par leur rôle (`series:0`, `ink2`, `removed`…), résolues selon le thème.
@@ -290,7 +295,7 @@ Un composant unique affiche une `FigureSpec` (§5.3) :
 - Un ou plusieurs signaux, superposés ou empilés en panneaux à axe des temps commun.
 - Abscisse en secondes depuis un instant de référence UTC indiqué sous l'axe ; la lecture du curseur donne le temps UTC absolu. Cela évite la perte de précision des temps absolus représentés en virgule flottante dans le navigateur.
 - Bascule entre unités physiques et counts.
-- L'enveloppe min/max (R16) est recalculée côté serveur pour la fenêtre visible à chaque zoom, la requête étant différée de 150 ms. Lorsque la fenêtre compte moins d'échantillons que de points demandés, les échantillons réels sont affichés.
+- L'enveloppe min/max (R16) est recalculée côté serveur pour la fenêtre visible à chaque zoom, la requête étant différée de 150 ms. Lorsque la fenêtre compte moins d'échantillons que de points demandés, les échantillons réels sont affichés. Le serveur transmet aussi une largeur de fenêtre de chaque côté, à la même résolution, pour que le déplacement soit immédiat ; les statistiques restent celles de la fenêtre visible.
 - Statistiques de la fenêtre visible, affichées sous le graphique et mises à jour à chaque zoom (§6.2).
 - Trous matérialisés par des zones grisées. P2 : niveaux ±PE/2 affichés lorsque le signal s'en approche.
 - Sélection d'une fenêtre temporelle (Shift + glisser) : `Analyze selection…` (lanceur prérempli avec `t_start` et `t_end`), `Slice to new signal`, `Zoom to selection`.
@@ -349,6 +354,8 @@ Mise en page générique : un panneau par grandeur et unité des ordonnées, reg
 ### 5.4 Spectrogramme (P2)
 
 µPlot ne trace pas de cartes de couleurs. L'image est donc calculée côté serveur (palette et bornes de couleur de v2 §12.2) et dessinée dans la zone de tracé par un greffon µPlot, qui conserve les axes, le zoom et la lecture du curseur (temps, fréquence, niveau en dB). Une barre de couleur l'accompagne ; la trace temporelle peut être affichée au-dessus, avec l'axe des temps partagé.
+
+Réalisation : le serveur envoie la grille des niveaux, réduite à 400 × 800 cellules au plus en conservant le maximum des cellules regroupées (une raie étroite reste visible, R16) et quantifiée sur 16 bits ; le navigateur la colore et y lit le niveau sous le curseur. Sur un axe des fréquences logarithmique, les lignes de la grille sont régulières en log f.
 
 ### 5.5 Export
 
@@ -509,8 +516,10 @@ Comportement :
 ### 7.6 Comparaison (P2)
 
 - Superposition de plusieurs résultats de même nature dans un même graphique : par exemple DSP de trois numériseurs, ou `lnm` de trois voies.
-- Chaque signal garde sa couleur dans toutes les vues : la couleur suit le signal, pas son rang.
+- Chaque signal garde sa couleur dans toutes les vues : la couleur suit le signal, pas son rang. Cela vaut pour les tracés de plusieurs signaux et pour les comparaisons ; la figure d'un seul résultat garde les couleurs de ses rôles (données, ajustement, modèle).
 - Sous le graphique, le panneau de résultats devient un tableau comparatif : une colonne par signal (§7.5).
+- Règles de superposition : quand un panneau comporte une courbe lissée (`lnm`), seules les courbes lissées sont superposées ; les modèles (NLNM) sont tracés une fois ; les repères, bandes et conditions de calcul ne sont conservés que s'ils sont identiques pour tous les résultats. Pour `sinad` et `dynamic`, seul le spectre du résidu est comparé.
+- Sont refusés, avec la raison : des analyses différentes, des unités différentes (renseigner d'abord l'unité et la sensibilité des signaux), les spectrogrammes (à ouvrir côte à côte). Les analyses sans graphique (`noise`, `frequency`) sont comparées dans le tableau seul.
 
 ## 8. Acquisition, temps réel, rapports, scripts et lots
 
@@ -525,8 +534,9 @@ Comportement :
 
 - Même choix des voies que pour l'acquisition ; durée du tampon et périodes de rafraîchissement configurables.
 - Tableau de bord : pour chaque voie, moyenne, écart-type et C-C sur fenêtre glissante (en counts et en unité physique), latence et trous ; trace des dernières secondes ; FFT et DSP de Welch sur fenêtre glissante (défaut 60 s, rafraîchies toutes les 2 s).
-- Enregistrement simultané en miniSEED (interrupteur) ; arrêt.
+- Enregistrement simultané en miniSEED (interrupteur, actif aussi pendant l'exécution) ; arrêt.
 - Réception, calcul et affichage découplés (R7, R12) : le navigateur ne reçoit que les statistiques et des courbes décimées.
+- Les axes des graphiques suivent les données tant que l'utilisateur n'a pas zoomé ; un double-clic les fait suivre de nouveau. Une session temps réel à la fois ; elle appartient au serveur, comme l'acquisition (§3.4).
 
 ### 8.3 Rapports (P1 — v2 §14)
 
@@ -548,6 +558,7 @@ Comportement :
 - Formulaire : analyse ou script, fichiers (motif, ou sélection dans l'explorateur), paramètres, fichier de sortie (CSV, JSON).
 - Avancement fichier par fichier ; tableau des résultats (une ligne par fichier et par voie) ; les erreurs sont consignées sans interrompre le lot.
 - Export du tableau ; rapport global en option.
+- Les motifs sont relatifs au projet et les fichiers confinés à ses racines (`[web] roots`, §12.2) ; l'arrêt prend effet avant le fichier suivant ; le rapport global est un rapport Quarto contenant le tableau du lot.
 
 ## 9. Éditeur de texte Monaco
 
@@ -818,7 +829,7 @@ model = "claude-opus-5-5"             # clé lue dans ANTHROPIC_API_KEY
 
 | Domaine | Exigence |
 | --- | --- |
-| Navigateurs | Firefox et navigateurs Chromium (Chrome, Edge), deux dernières versions majeures ; Safari : P3 |
+| Navigateurs | Firefox et navigateurs Chromium (Chrome, Edge), deux dernières versions majeures, et au minimum Chrome et Edge 121 (exigence de NiceGUI 4) ; Safari ≥ 17.2 : P3 |
 | Écran | 1920×1080 de référence ; utilisable à partir de 1366×768 |
 | Réactivité | aucune action de l'interface ne reste sans réponse visible plus de 100 ms ; boucle d'événements jamais bloquée plus de 50 ms (R12) |
 | Démarrage | serveur prêt en moins de 3 s ; première page affichée en moins de 2 s en local |
@@ -999,12 +1010,14 @@ Ces adaptations ont été relevées dans le code actuel. Elles sont réalisées 
 | Résultats de la session (`Session.add_result`) | liste sans nom | nom de session stable (`R1`, `R2`…) exposé dans l'espace de noms du terminal ; alias des variables ; suppression (§6.1) |
 | Variables du terminal | non publiées | inventaire des variables de l'espace de noms (type, taille, aperçu), publié vers l'encart après chaque exécution (R13) |
 | Panneau de résultats | `Result.rows()` fournit libellé, valeur et équivalent physique | réutilisé tel quel ; la mise en page (R11) ajoute les chiffres clés, les groupes et les tableaux de chaque fonction (§7.5) |
-| Acquisition et temps réel (`seedlink/`) | déjà en tâche de fond, avec rappels d'avancement (R7) | pas d'adaptation de fond : l'interface lit les instantanés (R12) |
-| Dépendances (`pyproject.toml`) | `web = ["nicegui"]` | ajout de Jedi et de ruff ; bibliothèques JavaScript embarquées (§3.1) |
+| Acquisition et temps réel (`seedlink/`) | déjà en tâche de fond, avec rappels d'avancement (R7) | pas d'adaptation de fond : l'interface lit les instantanés (R12). Ajouts du lot W8 : dernières secondes de chaque voie (`latest`), FFT ou DSP à la demande (`snapshot(spectrum=…)`), enregistrement activé ou arrêté en cours d'exécution (`set_record_dir`). Correction : avec ObsPy 1.5, la connexion à un vrai serveur échouait toujours (délai de connexion absent) |
+| Lots (`scripts.batch`) | tableau rendu à la fin du lot | suivi fichier par fichier (`on_progress`), arrêt entre deux fichiers (`should_stop`), résultat `batch` pour le rapport global (`batch_summary`) |
+| Dépendances (`pyproject.toml`) | `web = ["nicegui"]` | NiceGUI 4 (`nicegui>=4.0,<5`) et Jedi (ruff en P2) ; bibliothèques JavaScript embarquées (§3.1) |
 
 ## Annexe C — Références
 
 - NiceGUI, documentation : <https://nicegui.io/documentation> ; élément `ui.xterm` : <https://nicegui.io/documentation/xterm>.
+- NiceGUI 4.0, notes de version et guide de migration : <https://github.com/zauberzeug/nicegui/releases/tag/v4.0.0>.
 - µPlot : <https://github.com/leeoniya/uPlot>.
 - Monaco Editor : <https://microsoft.github.io/monaco-editor/>.
 - xterm.js : <https://xtermjs.org>.

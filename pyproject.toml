@@ -20,7 +20,8 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = ["anthropic", "openai", "ollama"]
-web = ["nicegui"]
+web = ["nicegui>=4.0,<5", "jedi>=0.19"]
+e2e = ["playwright"]
 docs = ["quartodoc", "griffe<2", "jupyter"]
 dev = ["pytest>=8", "ruff", "mypy"]
 
@@ -31,11 +32,16 @@ onthesignal = "onthesignal.cli.main:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-onthesignal = ["templates/*"]
+onthesignal = [
+    "templates/*",
+    "web/components/*.js",
+    "web/static/vendor/**/*",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+markers = ["e2e: browser end-to-end tests (opt-in: ONTHESIGNAL_E2E=1, needs Chrome and Playwright)"]
 filterwarnings = ["ignore::DeprecationWarning:obspy.*"]
 
 [tool.ruff]

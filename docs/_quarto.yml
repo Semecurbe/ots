@@ -22,6 +22,7 @@ website:
         - user/index.qmd
         - user/installation.qmd
         - user/quickstart.qmd
+        - user/web.qmd
         - user/conventions.qmd
         - user/files.qmd
         - user/test-signals.qmd

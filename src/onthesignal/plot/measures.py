@@ -13,6 +13,7 @@ from .style import (
     INK2,
     LINE_W,
     MARKER,
+    SEQUENTIAL_STOPS,
     SERIES,
     SURFACE,
     THIN_W,
@@ -28,10 +29,7 @@ from .style import (
 no_figure("frequency")
 
 #: Sequential single-hue ramp (light → dark) for magnitudes.
-SEQUENTIAL = LinearSegmentedColormap.from_list(
-    "onthesignal_blue",
-    ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"],
-)
+SEQUENTIAL = LinearSegmentedColormap.from_list("onthesignal_blue", SEQUENTIAL_STOPS)
 
 
 @plotter("period")

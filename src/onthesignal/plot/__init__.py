@@ -32,6 +32,9 @@ def no_figure(*kinds: str) -> None:
         _PLOTTERS[kind] = None
 
 
+no_figure("batch")  # table of a batch (scripts.batch_summary)
+
+
 def has_figure(kind: str) -> bool:
     _load()
     return _PLOTTERS.get(kind, _default) is not None

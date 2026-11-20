@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+from collections.abc import Callable
 from datetime import date
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ..core.errors import ParameterError
 from ..core.registry import commands
 from .context import system_prompt
 from .providers import LLMProvider, Reply, ToolCall, make_provider
 from .tools import Tool, build_tools
-
-if TYPE_CHECKING:
-    from ..cli.console import OnTheSignalConsole
 
 MAX_ROUNDS = 8
 CODE_BLOCK = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
@@ -34,55 +33,94 @@ def extract_code(text: str) -> str | None:
 
 
 class Assistant:
-    """AI assistant bound to a console session."""
+    """AI assistant bound to a user host: the console, or the chat of the web interface.
 
-    def __init__(self, console: OnTheSignalConsole, provider: LLMProvider | None = None) -> None:
-        self.console = console
-        self.session = console.session
+    Parameters
+    ----------
+    host : object
+        User host (rule R14 of the web specification): a ``session`` attribute and the
+        methods ``info``, ``warning``, ``error``, ``markdown(text)``,
+        ``confirm(question, details="") -> bool`` and ``run_python(code)``. The console
+        implements them.
+    provider : LLMProvider, optional
+        Model provider (from the ``[ai]`` configuration by default).
+    on_event : callable, optional
+        ``on_event(event, data)`` with ``event`` in ``"reply"``, ``"tool_start"``,
+        ``"tool_end"`` and ``"done"`` (tool-call cards of the web chat).
+    """
+
+    def __init__(self, host: Any, provider: LLMProvider | None = None,
+                 on_event: Callable[[str, dict], None] | None = None) -> None:
+        self.host = host
+        self.console = host  # former name of the host, kept for compatibility
+        self.session = host.session
         self.provider = provider or make_provider(self.session.config)
         self.tools: dict[str, Tool] = build_tools(self.session)
         self.transcript: list[dict] = []
+        self.on_event = on_event
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        """Stop the current request after the model call or tool in progress."""
+        self.cancelled = True
+
+    def _emit(self, event: str, **data: Any) -> None:
+        if self.on_event is None:
+            return
+        try:
+            self.on_event(event, data)
+        except Exception:  # the conversation must not fail because of the display
+            logging.getLogger(__name__).exception("Assistant event handler failed")
 
     # ------------------------------------------------------------------ conversation
     def ask(self, text: str) -> str:
         """Send a question; run the requested tools; return the final answer text."""
+        self.cancelled = False
         self.transcript.append({"role": "user", "content": text})
         system = system_prompt(self.session)
         specs = [t.spec for t in self.tools.values()] if self.provider.supports_tools else []
         answer = ""
         for _ in range(MAX_ROUNDS):
             reply: Reply = self.provider.chat(system, self.transcript, specs)
+            if self.cancelled:
+                self.transcript.pop()  # the unanswered question is withdrawn
+                self.host.warning("Request stopped")
+                break
             self.transcript.append({"role": "assistant", "content": reply.text,
                                     "tool_calls": reply.tool_calls})
             if reply.text:
                 answer = reply.text
-                self._print(reply.text)
+                self.host.markdown(reply.text)
+                self._emit("reply", text=reply.text)
             if not reply.tool_calls:
                 if not self.provider.supports_tools:
                     self._offer_code(reply.text)
                 break
             for call in reply.tool_calls:
-                outcome = self.execute(call)
+                if self.cancelled:
+                    outcome = {"ok": False, "error": "Stopped by the user"}
+                else:
+                    self._emit("tool_start", call=call)
+                    outcome = self.execute(call)
+                    self._emit("tool_end", call=call, outcome=outcome)
                 self.transcript.append({"role": "tool", "id": call.id, "name": call.name,
                                         "content": json.dumps(outcome, ensure_ascii=False,
                                                               default=str)[:20000]})
+            if self.cancelled:
+                self.host.warning("Request stopped")
+                break
         else:
-            self.console.display.warning("The assistant stopped after too many tool calls")
+            self.host.warning("The assistant stopped after too many tool calls")
+        self._emit("done", text=answer)
         return answer
-
-    def _print(self, text: str) -> None:
-        from rich.markdown import Markdown
-
-        self.console.display.console.print(Markdown(text))
 
     def _allowed(self, call: ToolCall, tool: Tool) -> bool:
         auto = str(self.session.config.get("ai.auto_execute", "read_only")).lower()
         if not tool.confirm and auto == "read_only":
             return True
         args = ", ".join(f"{k}={v!r}" for k, v in call.arguments.items())
-        answer = self.console.ask(f"The assistant wants to run {call.name}({args}). Allow? (y/N)",
-                                  "n")
-        return answer.strip().lower() in ("y", "yes", "o", "oui")
+        return bool(self.host.confirm(f"The assistant wants to run {call.name}({args}). Allow?",
+                                      details=str(call.arguments.get("code", ""))))
 
     def execute(self, call: ToolCall) -> dict:
         """Run one tool call under the confirmation policy; errors are returned to the model."""
@@ -102,11 +140,9 @@ class Assistant:
         code = extract_code(text)
         if not code:
             return
-        self.console.display.info(code)
-        if self.console.ask("Run this code in the console? (y/N)", "n").strip().lower() in (
-                "y", "yes", "o", "oui"):
+        if self.host.confirm("Run this code in the console?", details=code):
             self.session.history.append("ai: python code run")
-            self.console.run_python(code)
+            self.host.run_python(code)
 
     # ------------------------------------------------------------------ script generation
     def generate_script(self, name: str, description: str) -> Path:
@@ -114,8 +150,7 @@ class Assistant:
         from ..scripts import TEMPLATE, check_syntax, script_path
 
         path = script_path(name)
-        if path.exists() and self.console.ask(
-                f"{path} exists. Overwrite? (y/N)", "n").strip().lower() not in ("y", "yes"):
+        if path.exists() and not self.host.confirm(f"{path} exists. Overwrite?"):
             raise ParameterError("Script generation cancelled")
         api_ref = "\n".join(f"- {c.name}: {c.description}" for c in commands())
         prompt = (f"Script name: {name}\nTask: {description}\n\nTemplate:\n```python\n"
@@ -131,9 +166,10 @@ class Assistant:
         path.write_text(header + code, encoding="utf-8")
         error = check_syntax(path)
         if error:
-            self.console.display.error(f"Syntax error in the generated script: {error}")
+            self.host.error(f"Syntax error in the generated script: {error}")
         return path
 
 
-def get_assistant(console: Any, provider: LLMProvider | None = None) -> Assistant:
-    return Assistant(console, provider)
+def get_assistant(host: Any, provider: LLMProvider | None = None,
+                  on_event: Callable[[str, dict], None] | None = None) -> Assistant:
+    return Assistant(host, provider, on_event)

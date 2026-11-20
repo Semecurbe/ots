@@ -1,0 +1,289 @@
+---
+title: "Web interface"
+---
+
+`onthesignal web` opens the whole of onthesignal in a browser: the signals of the session,
+every analysis with interactive µPlot charts and its results under the chart, comparisons of
+results, batches, SeedLink acquisition and real-time dashboard, a Python terminal working on
+the signals, a code editor (Monaco) and the AI chat. It uses the same computations, commands,
+scripts and configuration as the console, which remains available unchanged (`onthesignal`).
+
+## Starting
+
+```bash
+pip install -e ".[web]"              # once: NiceGUI 4 and Jedi
+onthesignal web                      # project = current folder, http://127.0.0.1:8080
+onthesignal web data/*.mseed         # with files loaded at start-up
+onthesignal web --project ~/bench3 --port 8090 --no-browser
+```
+
+The browser opens on `http://127.0.0.1:8080`. Ctrl+C in the shell stops the server; an
+acquisition in progress is stopped cleanly and its data are saved.
+
+The browser must be recent: Firefox, Chrome or Edge 121 or later, Safari 17.2 or later (the
+minimum of NiceGUI 4). Every library is served by the server itself, so the interface works
+without Internet access, except for SeedLink and the online AI providers.
+
+One server serves one user, one project and one session. Several browser tabs can be open on
+it: they share the session and stay synchronized. Reloading the page loses nothing — the
+session, the Python terminal and the background jobs (acquisition, real time, batches,
+reports) live in the server.
+
+### Working from another computer
+
+The server listens on the local machine only and has **no authentication**: anyone who can
+reach its port can run Python code with your account. To work from a laptop, use an SSH
+tunnel, which keeps the server local and protected by SSH:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 user@bench-pc
+# then open http://127.0.0.1:8080 on the laptop
+```
+
+`--host 0.0.0.0` makes the server listen on the network; it prints a warning at start-up. Only
+do this on a trusted network, ideally with `[web] code_execution = false`.
+
+## Layout
+
+```text
+┌ header: project · search (/) · AI model · terminal and chat buttons ─────────────────────┐
+│ activity │ OBJECTS          │ work area: one tab per signal, result,   │ AI CHAT          │
+│ bar      │ signals, results,│ file… — the chart on top, its results     │                  │
+│          │ figures,variables│ below                                     │                  │
+│          │ ── active view ──│──────────────────────────────────────────│                  │
+│          │ Files, Analyses, │ PYTHON · OUTPUT · PROBLEMS · JOBS · HISTORY│                  │
+│          │ Acquisition,     │                                           │                  │
+│          │ Real time…       │                                           │                  │
+└ status bar: signals and results, running jobs, AI model, UTC time ─────────────────────────┘
+```
+
+| Shortcut | Action |
+| --- | --- |
+| `/`, Ctrl+K | command palette: commands, signals, results, files |
+| Ctrl+P | open a file or an object |
+| Ctrl+Enter | run the open form |
+| Ctrl+S | save the file in the editor |
+| F5 | run the script open in the editor |
+| Shift+Enter | run the selection (or the `# %%` cell) of the editor in the terminal |
+| Ctrl+` | show or hide the Python terminal |
+| Ctrl+Shift+I | show or hide the AI chat |
+| Drag | zoom on the abscissa of a chart (*Zoom* mode), or move along it (*Move* mode) |
+| Middle button drag, Shift + mouse wheel | move along the abscissa of a chart |
+| Ctrl + mouse wheel | zoom a chart in or out around the cursor |
+| Shift+drag | select a time window on a plot |
+| Double-click | back to the full view of a chart |
+
+The palette also runs complete commands, as in the console: `/noise S1 fmax=50` runs the
+analysis, `/noise` alone opens its form.
+
+### Navigating in a chart
+
+Every chart has a toolbar at its top right, as the matplotlib windows:
+
+| Button | Action |
+| --- | --- |
+| Home | full view (also a double-click on the chart) |
+| ← / → | previous view / next view: every zoom or move can be undone and redone |
+| Zoom (magnifier) | default mode: drag over a range to zoom in on it |
+| Move (four arrows) | drag the chart to move along the abscissa, as the *Pan* button of matplotlib |
+
+Whatever the mode, the middle button drags the chart, Shift + mouse wheel (or a horizontal
+swipe of a touchpad) moves along the abscissa, and Ctrl + mouse wheel zooms around the cursor;
+a plain wheel scrolls the page. The ordinate follows the visible data. The panels of a figure
+that share their abscissa (stacked signals, spectrogram and its time series) zoom and move
+together.
+
+## Objects panel
+
+The panel at the top left lists every object of the session; **one click displays it**:
+
+| Group | Click |
+| --- | --- |
+| Signals (`S1`, `S2`…) | time plot, with the statistics of the visible window and the properties below |
+| Results (`R1`, `R2`…) | the chart of the analysis and its results below |
+| Figures | matplotlib figures shown by the terminal or a script |
+| Variables | other variables of the Python terminal: numbers, arrays (plotted), lists… |
+
+Right-click opens the actions (rename, analyze, export, compare, add to report, ask the AI,
+delete). Ctrl+click selects several signals, then *Plot selected signals together*, or several
+results, then *Compare selected results*. An object can be dragged into the chat or the
+editor to insert its name. Results get stable session names
+(`R1`, `R2`…) usable in the terminal (`R3["rms"]`); a terminal variable pointing to a result is
+shown as an alias (`R3 · r`).
+
+## Signals
+
+- **Loading.** In the *Files* view, click a miniSEED file (or right-click → *Load with
+  options…*); text files open an import assistant showing the first lines, where you give the
+  number of channels, the time column and the sampling rate. Files can also be uploaded from
+  the computer of the browser (*Upload*, or drag and drop): they are saved in `data/uploads/`
+  of the project.
+- **Plot.** The time plot uses relative seconds from the UTC instant written under the axis;
+  the legend shows the absolute UTC time under the cursor. Zoom with the mouse: the visible
+  window is reloaded at full resolution (an isolated spike of one sample always stays
+  visible), with one window width on each side so that it can be moved at once. The table below gives the mean, standard deviation, peak-to-peak, minimum and
+  maximum of the visible window. Each signal keeps its color in every plot of several
+  signals and in the comparisons (`S1` blue, `S2` orange…).
+- **Selection.** Shift+drag selects a window: *Analyze selection…* opens an analysis with
+  `t_start` and `t_end` filled in; *Slice to new signal* creates a new signal.
+- **Properties.** Name, title, NSLC codes, unit, sensitivity (an expression such as
+  `40 / 2**24` is accepted; `physical = counts × sensitivity`) and full scale are edited under
+  the plot.
+- **Test signals.** The `+` button of the panel creates test sines and noises of an ideal
+  N-bit digitizer ([Test signals](test-signals.qmd)).
+
+## Analyses and results
+
+The *Analyses* view lists every analysis by category. A click opens a form generated from the
+parameters of the analysis, exactly as in the console: each field shows its default value, its
+unit, its help and **where its value comes from** (the signal, `onthesignal.toml` or the
+default). Simple expressions are accepted (`2**24`, `1e-3`); advanced parameters are folded.
+
+The result opens in a tab: interactive chart on top (zoom, cursor reading, legend), and under
+it the results of this analysis (the navigation of the charts is described in
+[Navigating in a chart](#navigating-in-a-chart)):
+
+1. warnings (saturation, gaps, reduced band…);
+2. the key figures of the analysis (for `noise_dsp`: RMS and RMS from the PSD integration side
+   by side, dynamic range, ENOB);
+3. the detail table, in counts and in physical unit (click a value to copy it; *Copy table*
+   copies everything for a spreadsheet);
+4. tables of the analysis (harmonics of `thd`, Δt of each edge for `delay50`…);
+5. the parameters actually used and the traceability (signals, SHA-256, versions).
+
+The charts follow the rules of the console figures: calculation conditions above the spectra,
+removed mains lines as red dashed lines, logarithmic frequency axis, fundamental, harmonics
+(H2, H3…) and largest spur marked. `dynamic` shows a summary and one sub-tab per figure
+(SINAD, SFDR, THD).
+
+The spectrogram is a color map under the time series, both on the same time axis: zooming
+one zooms the other. Under the map, the cursor reads the UTC time, the frequency and the
+level in dB; the color bar gives the color range (`vmin`, `vmax` of the analysis).
+
+*Export* saves the result (JSON, CSV), the chart as displayed (PNG) or the publication figure of
+the reports (matplotlib PNG, SVG, PDF). *Edit parameters and re-run* reopens the form.
+
+### Comparing results
+
+Results of the same analysis can be overlaid, for instance the PSD of three digitizers or the
+`lnm` of three channels: Ctrl+click them in the objects panel, then *Compare selected
+results*, or right-click a result → *Compare with…*. Each curve takes the color of its signal;
+for `lnm` the smoothed PSDs are overlaid and the NLNM drawn once. Under the chart, a table
+gives the values of every result side by side (*Copy table* for a spreadsheet, *Export* in
+CSV). Results whose figures cannot be overlaid (spectrograms) or with different units are
+refused with an explanation; analyses without a chart (`noise`, `frequency`) are compared in
+the table only.
+
+## Python terminal
+
+The terminal at the bottom is a **Python terminal connected to the session**: signals are
+variables, every onthesignal function is available, and what you do appears at once in the
+interface — and conversely.
+
+```text
+ots> S1.sensitivity = 40 / 2**24; S1.unit = "V"     # properties updated under the plot
+ots> S4 = S1 - S2                                   # S4 appears in the Objects panel
+ots> r = noise(S1, remove_mains=True)               # values printed, result tab opened
+ots> r["dr"]
+ots> for s in (S1, S2):
+...      print(s.name, round(noise(s, show=False)["rms"], 3))
+ots> /lnm S3                                        # graphical form, then result tab
+```
+
+- Tab completes names, attributes (`S1.` → `sensitivity`, `lnm`…) and parameters, from the
+  live objects (Jedi). `noise?` or `help(noise)` shows the documentation.
+- A block (`for`, `def`) continues on the next line; an empty line runs it.
+- Ctrl+C interrupts the running code (a long numpy call stops when it returns); Ctrl+R
+  searches the history, shared with the console.
+- `plt.plot(...); plt.show()` opens the figure in a tab (*Figures* group).
+- `/` commands work as in the console; a command typed without parameters opens the
+  graphical form. `/ai <question>` sends the question to the chat, `/edit_script` and
+  `/context` open the editor.
+
+The terminal is not a system shell: it only runs Python and the onthesignal commands.
+
+## Editor
+
+The *Files* view opens text files in the Monaco editor: scripts, `context.md`,
+`onthesignal.toml`, reports `.qmd`… Ctrl+S saves (a Python syntax error is underlined and
+announced), F5 runs a script of `scripts/` with its form, Shift+Enter runs the selection or the
+current `# %%` cell in the terminal. A `.qmd` report has a *Render* button. A file changed on
+disk (by the terminal, an acquisition…) is reloaded unless you are editing it.
+
+## AI chat
+
+The chat on the right drives the assistant described in [AI assistant](ai.qmd):
+
+- each tool call appears as a card (function, arguments, duration, summary) with a link to the
+  result it produced;
+- actions that need your consent (writing files, running a script, running code) show
+  *Allow* / *Deny* in the chat;
+- code blocks of the answers can be copied, opened in the editor or run in the terminal (after
+  confirmation);
+- a message starting with `/` runs the command in the terminal;
+- the first request to an online provider (Claude, ChatGPT) asks whether the summaries may be
+  sent to it; the answer holds until the server stops. Ollama and servers of the local
+  network are not asked, as the data stay on your network;
+- *Init* runs `/init`, *Context* opens `context.md`; the tune button changes the provider, the
+  model, the server URL and the context size for the session; *Stop* interrupts a request.
+
+The model receives summaries of the signals and results, never the samples. API keys are read
+from the environment of the server only. With Ollama, set the context to at least 16 384
+tokens (see `ollama.md` at the root of the repository).
+
+## Reports, scripts and batches
+
+- **Reports.** *Add to report* puts results in the basket of the *Reports* view; *Generate the
+  report* writes the Quarto report and renders it (HTML, PDF). Existing reports can be edited,
+  rendered again, previewed in a tab and downloaded ([Reports](reports.qmd)).
+- **Scripts.** The *Scripts* view creates a script from the template, edits it and runs it with
+  its form ([Scripts](scripts.qmd)).
+- **Batches.** *New batch…* in the *Scripts* view (or `/batch` in the palette, or right-click
+  a folder of the *Files* view → *Batch on this folder…*) runs an analysis or a script on
+  every channel of every file matching the patterns (`data/*.mseed`, several separated by
+  spaces; files outside the project are refused). The form gives the parameters of the
+  analysis, the reading options for files without metadata (unit, sensitivity, text files)
+  and the output table (`.csv` or `.json`). A tab follows the batch file by file and shows
+  one row per file and channel; a file that cannot be read or analysed is recorded in the
+  `error` column and does not stop the batch. *Stop* ends it before the next file; *Export*
+  downloads the table; *Global report* writes a Quarto report holding the table.
+
+## Acquisition and real time
+
+Both views choose the streams the same way: server, port, network and station (defaults of
+`[seedlink]`), *List streams*, then a filter by pattern (`FH?`, `00.HH?`, `?HZ`) and the
+check boxes (*All*, *None*).
+
+- **Acquisition.** *Start* records the chosen streams to miniSEED for the given duration, with
+  a live table per channel (samples, last sample, latency, gaps, effective rate); *Stop* ends
+  it cleanly. The acquisition belongs to the server: it goes on if the browser is closed, and
+  the reloaded page shows its progress again ([Acquisition](acquisition.qmd)).
+- **Real time.** *Start* opens the *Real time* dashboard: for each channel, the mean,
+  standard deviation and peak-to-peak over the statistics window (in counts, and in the
+  physical unit when a sensitivity is given, e.g. `1/6.29e8` m/s per count), the latency and
+  the gaps; the trace of the last seconds, one panel per channel; the FFT amplitude and the
+  Welch PSD over the spectral window (60 s by default, refreshed every 2 s). The axes follow
+  the data until you zoom; a double-click makes them follow again. *Record to miniSEED*
+  appends the received records to `<folder>/<channel>.mseed` and can be switched on and off
+  while running. One real-time session at a time; it stops with *Stop* or when the server
+  stops.
+
+## Configuration
+
+The `[web]` section of the configuration is described in [Configuration](configuration.qmd).
+The *Settings* view shows the merged configuration and opens `onthesignal.toml` in the
+editor.
+
+## Troubleshooting
+
+| Problem | Solution |
+| --- | --- |
+| `The web interface needs the [web] dependencies` | `pip install -e ".[web]"` |
+| `address already in use` | another server uses the port: `--port 8090`, or stop it |
+| The page stays empty or reconnects | the server was stopped or restarted: reload the page |
+| The page stays blank in an old browser | NiceGUI 4 needs Chrome or Edge 121 or later, Safari 17.2 or later, or a recent Firefox |
+| `Forbidden … (Host or Origin check)` | the address used is not the server's: use `127.0.0.1`, or add the host name to `[web] allowed_hosts` |
+| A command of the terminal waits | a form or a confirmation is open in the browser: answer it, or Ctrl+C |
+| A channel of the real-time dashboard stays empty | low-rate channels (`LH?`, `VH?`) send one record every few minutes: wait, or choose `HH?`/`BH?` channels |
+| A batch reports `outside the project` | the patterns are relative to the project folder; to use another folder, add it to `[web] roots` |
+| The chat answers `The assistant is not available` | no model configured: tune button of the chat, or `[ai]` in `onthesignal.toml` |

@@ -140,6 +140,8 @@ class Result:
         Additional rendering information (markers, shaded bands...).
     meta : dict
         Software version, creation time, computation time.
+    name : str
+        Session name (``R1``, ``R2``...), given when the result is added to a session.
     """
 
     kind: str
@@ -152,6 +154,7 @@ class Result:
     warnings: list[str] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
+    name: str = ""
 
     def __post_init__(self) -> None:
         self.meta.setdefault("version", __version__)
@@ -190,6 +193,7 @@ class Result:
     def to_dict(self, curves: bool = True, max_points: int | None = None) -> dict:
         """Serializable representation; ``curves=False`` keeps only scalar results."""
         out = {
+            "name": self.name,
             "kind": self.kind,
             "title": self.title,
             "signals": jsonable(self.signals),
@@ -275,4 +279,5 @@ class Result:
     def __repr__(self) -> str:
         names = ", ".join(s.get("name", "?") for s in self.signals)
         main = ", ".join(f"{k}={v.text()}" for k, v in list(self.values.items())[:3])
-        return f"<Result {self.kind} {names}: {main}>"
+        prefix = f"{self.name} " if self.name else ""
+        return f"<Result {prefix}{self.kind} {names}: {main}>"

@@ -1,19 +1,190 @@
 ---
-title: "Web phase (NiceGUI + µPlot)"
+title: "Web interface (architecture)"
 ---
 
-Phase 2 (separate specification) adds a web interface. Phase 1 already provides:
+The web interface (`onthesignal.web`, specification `onthesignal_web.md`) is a user interface
+layer: it contains no signal processing (rule R10) and calls the same registry, API, scripts,
+reports and assistant as the console.
 
-- **Pure computations** (`compute_*`) usable from any interface; one `Session` per web user,
-  made current with `set_session` in each request or task (context variable, asyncio-safe).
-- **Parameter declarations** (`Command.params`, `Param.json_schema`) to generate forms.
-- **Serializable results** (`Result.to_dict(curves=True, max_points=...)`): curves are x/y
-  arrays, directly usable by µPlot (log scales supported). The spectrogram is a matrix in
-  `result.extra["image"]` and will need an image rendering or another component.
-- **Display handler**: the web front end installs its own `session.display_handler`.
-- **Long operations**: `Acquisition` and `RealtimeMonitor` run their own thread and report
-  through callbacks (`on_progress`, `on_update`); `stop()` is thread-safe.
-- **Decimation**: `processing.spectral.minmax_envelope` reduces long series for display.
+```text
+web.app            onthesignal web: options, security, static files, page, ui.run
+web.ui.workbench   one Workbench per browser tab: layout, event polling, palette, shortcuts
+web.ui.*           objects panel, tabs (signal, result, editor…), side views, chat, dialogs
+web.components     µPlot chart and Monaco editor (Python element + Vue component)
+web.state          WebState shared by all tabs: session, terminal, jobs, channels, requests,
+                   acquisition, real time, batches, colors of the signals
+web.realtime       RealtimeRun: SeedLink monitor and payloads of the real-time dashboard
+web.batch          BatchRun: a batch followed file by file, its table and its report
+web.terminal       Python terminal: the console running in a thread, VT100 to xterm.js
+web.figures        data sent to the charts: decimated, aligned, JSON-safe
+web.security       Host/Origin guard, path confinement
+plot.spec          FigureSpec: renderer-independent figure and results panel
+plot.layouts       one layout per analysis, generic layout, results_view()
+processing.display decimation keeping minima and maxima, window statistics
+```
 
-Things to watch: NiceGUI is asyncio-based — run blocking calls (analyses on long records,
-report rendering) in a worker thread (`run.io_bound` / `run.cpu_bound`).
+## Threads and the event loop
+
+NiceGUI runs on asyncio; widgets may only be touched from its event loop (rule R12). Analyses,
+loading, reports, acquisitions and AI requests run as **jobs** (`WebState.jobs.start`), in
+daemon threads independent of the browser tabs. Threads never call NiceGUI: they push events
+(`open`, `notify`, `form`, `confirm`, `chat`…) into the **channel** of a tab
+(`WebState.to_origin` sends to the tab that started the job, `broadcast` to all). Each
+`Workbench` drains its channel every 100 ms and follows `session.version`, which every change
+of the session increments (`Session.notify`, rule R13).
+
+A thread that needs an answer from the user (assistant confirmation, form of a `/command` typed
+in the terminal) calls `WebState.requests.ask(event)`: the tab shows a dialog and calls
+`requests.answer`. The wait uses short timeouts so that Ctrl+C still interrupts the terminal.
+
+The worker threads do not inherit the context of the page: `set_session(session,
+default=True)` makes the web session the default of the process, so the public API
+(`noise(S1)`…) finds it in every thread.
+
+Work that outlives a browser tab belongs to `WebState`, never to a view: the acquisition
+(`start_acquisition`, with `acquisition_progress`), the real-time session (`start_realtime`,
+`WebState.realtime`) and the batches (`start_batch`, `WebState.batches`). A view or a tab only
+reads their state with a `ui.timer`, so a reloaded page shows them again (case W-12). The
+job thread of a `RealtimeRun` computes the statistics, the decimated trace and, at a slower
+pace, the FFT and the PSD, and publishes them by replacing one `RealtimeView` object (readers
+always see a complete payload, with version numbers telling what changed). A `BatchRun` runs
+`scripts.batch()` with `on_progress` and `should_stop`. `WebState.seedlink_factory` replaces
+the SeedLink client in the tests.
+
+## Python terminal
+
+`web.terminal.PythonTerminal` runs `OnTheSignalConsole` (same namespace, `/` commands and
+synchronization as the console) in a thread, with an injected session and display:
+
+- input: the keystrokes of xterm.js go into a prompt_toolkit pipe input;
+- output: a `Vt100_Output` and a rich `Console` write into `TerminalWriter`, whose text is
+  buffered and written to every attached xterm by the timer of each tab; a scrollback redraws
+  the terminal when a tab reconnects;
+- `print` of the user code: `sys.stdout` is a `ThreadRoutedStream` that sends the writes of
+  the terminal thread to the terminal;
+- Enter runs the code when it is complete (`codeop`), otherwise inserts an indented new line;
+- Ctrl+C raises `KeyboardInterrupt` in the terminal thread
+  (`PyThreadState_SetAsyncExc`);
+- `submit(code)` runs code from the editor, the palette or the chat as if typed.
+
+The console offers hooks for the web: `param_form` (graphical form), `ai_handler` (chat),
+`edit_handler` (editor), `quit_handler`.
+
+## Figures
+
+An analysis gets an interactive chart through a **layout** in `plot.layouts`:
+
+```python
+@layout("my_analysis")
+def my_layout(result) -> FigureSpec:
+    c = result.curves["spectrum"]
+    panel = Panel("spectrum", Axis("Frequency", "Hz", "log"), Axis("Amplitude", "dBFS"),
+                  [Series("spectrum", "spectrum")], markers=..., conditions=[...])
+    return FigureSpec(result.title, [panel],
+                      results=ResultsSpec(headline=["key1"], groups=[("Group", ["k1", "k2"])]))
+```
+
+Without a layout, a result gets the generic one (one panel per ordinate quantity, every value
+in the results panel), so user scripts are displayed without web code. The chart component is
+generic: it draws any `FigureSpec`; colors are palette tokens (`series:0`, `ink2`, `removed`).
+`web.figures` decimates every curve (`decimate_xy`, two points per bin, extremes kept) and
+aligns the curves of a panel on the union of their abscissas, as µPlot needs one abscissa per
+chart.
+
+Adding an analysis therefore takes: the computation and its registration (v2 procedure), a
+layout if the generic one is not enough, and its key figures in `ResultsSpec`. The registry
+makes it appear in the palette, the *Analyses* view, the forms and the AI tools.
+
+**Heatmaps.** A panel with a `Heatmap` (spectrogram) draws `Result.extra[key]` (`t`, `f`,
+`z`) in its plotting area. `Axis.offset` and `Axis.factor` turn the matplotlib dates of the
+analysis into seconds from `time_origin` (`(x - offset) * factor`), so that the cursor reads
+the UTC time. `web.figures.heatmap_payload` merges the cells into at most 400 × 800 (by their
+maximum, so that a narrow line stays visible; on a logarithmic axis the rows are spaced in
+`log10 f` and empty rows take the nearest bin) and sends the levels as 16-bit integers in
+base64. The browser colors them with the sequential ramp of `plot.style` and reads the level
+under the cursor.
+
+**Comparisons.** `plot.layouts.comparison_spec(results, colors)` builds one figure from the
+layout of the first result: the curves of result `i` are named `"i/<curve>"` and drawn with
+`colors[i]`, the color of its signal (`WebState.color_of`: a signal keeps its slot of the
+categorical palette in every view). `comparison_view()` gives the table, one column per
+result. `COMPARE_PANELS` chooses the panels compared for an analysis (residual spectrum for
+`sinad`); `NOT_COMPARABLE` lists the analyses refused.
+
+**Chart component.** `uplot_chart.js` draws a toolbar above the panels (`buildToolbar`):
+full view, previous and next view, *Zoom* and *Move* modes. Every gesture of the user (drag
+zoom, move, wheel burst) is a step of the view history: `beginGesture` records the view at
+its start, `endGesture` stores it once the gesture is over; Back and Forward apply a view of
+the history (`applyView`) and, on a time plot, ask the server for that window. Moving is done
+by the component itself (`startPan`, `shifted`), the zoom selection of uPlot being disabled
+meanwhile; moves stay within the full view. The component emits `zoom` (time plots reload the
+visible window) only for changes made by the user, not for the scale changes that uPlot makes
+itself on resize or after building; uPlot runs its scale hooks in a microtask, so the flag of
+a gesture is released with a `setTimeout`. `signal_payload(..., margin=1.0)` adds one window
+width of data on each side of the visible window (statistics still on the window) so that a
+move shows data at once; the envelope always keeps the first and last samples, so that the
+full view is the full record. With `live=True` (real-time dashboard), `setPanelData`
+re-scales the axes to the new data until the user zooms or moves; *Home* makes them follow
+the data again.
+
+## SeedLink with ObsPy 1.5
+
+`seedlink.client.create()` does not use `obspy.clients.seedlink.easyseedlink.create_client`:
+ObsPy 1.5 creates the connection of `EasySeedLinkClient` without a timeout, and
+`SeedLinkConnection.connect()` then compares the elapsed time with `None`, so that every
+connection fails ("'<' not supported between instances of 'float' and 'NoneType'"). The
+client is built with a subclass of `SeedLinkConnection` whose `connect()` has a 30 s timeout
+(`CONNECT_TIMEOUT`). The timeout is not left on the connection, because `collect()` uses the
+same attribute to end the stream when no packet arrives within it, which would cut a
+low-rate channel. The fake clients of the tests do not exercise this path: check it against
+a real server (for instance `geofon.gfz-potsdam.de:18000`, station `GE.WLF`) after an ObsPy
+upgrade.
+
+## Security
+
+`OriginGuard` (ASGI middleware, so it also sees the socket.io WebSocket mounted in the app)
+refuses requests whose `Host` is not the server (DNS rebinding) and whose `Origin` is another
+site (cross-site requests and WebSocket hijacking); socket.io's own `cors_allowed_origins` is
+restricted too. It adds the security headers, with a relaxed content security policy for the
+rendered reports only (self-contained Quarto pages). Files are read and written through
+`confine()`, which resolves symbolic links before checking the project roots.
+
+## Front-end libraries
+
+µPlot (ESM module registered with `esm=`) and Monaco (AMD build served as static files) are
+vendored in `web/static/vendor` with their licenses; see `VENDOR.md` there for the versions
+and the parts of Monaco removed. Quasar 2.35, Vue 3.5 and xterm.js 6 come with NiceGUI 4.
+
+## NiceGUI 4
+
+The interface needs NiceGUI 4 (`nicegui>=4.0,<5`), hence Python ≥ 3.11 and, in the browser,
+Chrome or Edge ≥ 121 or Safari ≥ 17.2. Points to keep in mind when changing the interface (the
+complete list is in the
+[release notes of NiceGUI 4.0](https://github.com/zauberzeug/nicegui/releases/tag/v4.0.0)):
+
+- `run.io_bound` raises `asyncio.CancelledError` when it is cancelled, instead of returning
+  `None`: let it propagate, and never swallow it in a `ui.timer` callback (catch `Exception`,
+  not `BaseException`);
+- a cleared text input holds `''`, not `None`: test `not value`;
+- element ids in the page are `ng-<id>`: JavaScript code uses `element.html_id`, never a
+  hard-coded id;
+- a `ui.tab` must be created inside its `ui.tabs`; a table created with `pagination` shows
+  pagination controls unless `pagination_controls=False`;
+- props keep the names given: `snake_case` names are no longer converted to `kebab-case`;
+- lifecycle hooks take functions: `app.on_startup(startup)`, not `startup()`;
+- `WEB_CONCURRENCY` above 1 is refused: one server process, which is the model of the
+  interface anyway (one server, one session);
+- xterm.js 6 paints its viewport itself and defaults to the browser's monospace font: the
+  terminal font is set in the options of `ui.xterm`, the viewport background in the CSS of
+  `web/ui/workbench.py`;
+- Quasar 2.35 wraps the name of an icon in a `<span>`: the browser tests find an icon button
+  with `button:has(i:has-text('tune'))`.
+
+## Tests
+
+- `tests/test_web_core.py`: session events, result names, layouts of every analysis, results
+  panel, decimation, console hooks — no NiceGUI needed;
+- `tests/test_web.py`: security middleware, chart data, heatmaps, comparisons, shared state,
+  terminal engine, real time and acquisition with a fake SeedLink client, batches;
+- `tests/test_web_e2e.py`: browser tests with Playwright and the Google Chrome of the machine,
+  opt-in (`ONTHESIGNAL_E2E=1 pytest tests/test_web_e2e.py`, `pip install -e ".[e2e]"`).

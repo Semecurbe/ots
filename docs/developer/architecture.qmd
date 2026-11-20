@@ -8,25 +8,28 @@ Each layer only depends on the layers below it.
 
 | Layer | Packages | Role |
 |---|---|---|
-| Interfaces | `cli` (phase 1), web (phase 2) | input, display |
-| Services | `api`, `report`, `scripts`, `ai`, `core.session`, `core.registry` | orchestration, session, reports |
-| Rendering | `plot` | figures built from `Result` objects |
+| Interfaces | `cli` (console), `web` (browser, NiceGUI 4) | input, display |
+| Services | `api`, `report`, `scripts`, `ai`, `host`, `core.session`, `core.registry` | orchestration, session, reports, dialogue with the user |
+| Rendering | `plot` | matplotlib figures and renderer-independent `FigureSpec` built from `Result` objects |
 | Core | `core` (`Signal`, `Result`, `Param`), `io`, `synthetic`, `processing`, `analysis`, `seedlink` | pure computation and data access |
 
 ```text
 src/onthesignal/
 ├── core/        Signal, Result, Param, Session, registry, configuration, units, errors
 ├── io/          miniSEED, text files, export
-├── processing/  study band, mains, spectral estimation, common parameters, checks
+├── processing/  study band, mains, spectral estimation, common parameters, checks, display
+│                decimation
 ├── analysis/    noise, lnm, sinefit, sine (SINAD/SFDR/THD/dynamic), measures, spectral
-├── plot/        matplotlib renderers of each result kind, style
+├── plot/        matplotlib renderers of each result kind, style, FigureSpec layouts (web)
 ├── report/      Quarto report generation
 ├── scripts/     user scripts, batches, standalone entry point
 ├── seedlink/    client helpers, acquisition, real time
 ├── ai/          providers, tools, context (agent.md), assistant
 ├── cli/         console, / commands, forms, completion, display, editor
+├── web/         web interface: NiceGUI app, Python terminal, µPlot and Monaco, security
 ├── templates/   script_template.py, report.qmd.j2
 ├── synthetic.py test signals (ideal N-bit digitizer): make_sine, make_noise
+├── host.py      UserHost: how the assistant and the commands talk to the user
 └── api.py       public functions built from the registry
 ```
 
@@ -36,7 +39,7 @@ src/onthesignal/
   rich, and print nothing (logging only).
 - **R2** an analysis is a pure function `compute_x(signal(s), **params) -> Result`.
 - **R3** parameters are declared once (`Param`): Python defaults, console forms, help, AI JSON
-  schemas and future web forms all come from the declaration.
+  schemas and web forms all come from the declaration.
 - **R4** results are serializable (`Result.to_dict()` / `to_json()`).
 - **R5** `plot_*` functions fill a figure from a result; they never compute and never block.
 - **R6** state lives in a `Session` (current session in a context variable); no globals.
@@ -45,6 +48,10 @@ src/onthesignal/
 - **R8** every user-facing feature is registered once in the command registry.
 - **R9** results carry the parameters used, the signal identities (with SHA-256 of the source
   file), the software version and the time.
+
+The web interface adds rules R10 to R17 (no computation in the interface, renderer-independent
+figures, event loop never blocked, observable session…), given in `onthesignal_web.md` §3.3
+and applied in [Web interface](web-phase.qmd).
 
 ## Data flow of an analysis
 
@@ -58,7 +65,8 @@ src/onthesignal/
                   │ Command.func = analysis.noise.compute_noise (pure)
                   │ session.add_result(result)             │
                   └ display(result) → session.display_handler (console: rich table +
-                    non-blocking matplotlib window; scripts: text or nothing)
+                    non-blocking matplotlib window; web: result tab with its chart;
+                    scripts: text or nothing)
 ```
 
 ## Data model
@@ -74,4 +82,5 @@ src/onthesignal/
 - `Param`: name, type, default, unit, help, choices, bounds, `advanced`, `from_signal`.
 - `Command`: name, pure function, params, number of signals, `signal_params`, category,
   `read_only`, aliases.
-- `Session`: signals, results, configuration, history, display handler.
+- `Session`: signals, results (named `R1`, `R2`…), configuration, history, display handler;
+  observable (`version`, `subscribe`) for the web interface.

@@ -6,16 +6,16 @@ subtitle: "Signal processing for the characterization of seismic acquisition cha
 onthesignal measures what a seismic acquisition chain really does: digitizer self-noise and
 dynamic range, sine-wave performance (SINAD, ENOB, SFDR, THD, SNR), comparison with the
 Peterson noise models, time measurements, coherence and spectrograms. It runs as an
-interactive console in a Linux terminal and reads miniSEED and text files, or acquires data
-from SeedLink servers.
+interactive console in a Linux terminal or as a web interface in the browser, and reads
+miniSEED and text files, or acquires data from SeedLink servers.
 
 This documentation has three parts:
 
 | Part | For | Content |
 |---|---|---|
-| [User manual](user/index.qmd) | everyone | installation, console, commands, measurement procedures, reports, AI assistant |
+| [User manual](user/index.qmd) | everyone | installation, console, web interface, commands, measurement procedures, reports, AI assistant |
 | [Algorithms](algorithms/index.qmd) | metrologists, reviewers | definitions, equations, implementation, limits and validation of every computation |
-| [Developer guide](developer/index.qmd) | contributors | architecture, adding an analysis, conventions, tests |
+| [Developer guide](developer/index.qmd) | contributors | architecture, adding an analysis, conventions, tests, web interface |
 
 The [API reference](reference/index.qmd) is generated from the docstrings, and the
 [AI functions](ai/agent.md) page is the file given to the AI assistant.

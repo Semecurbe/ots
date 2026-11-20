@@ -200,6 +200,30 @@ class OllamaProvider:
 PROVIDERS = {"anthropic": AnthropicProvider, "openai": OpenAIProvider, "ollama": OllamaProvider}
 
 
+def local_provider(name: str, base_url: str = "") -> bool:
+    """True when the provider keeps the data on the machine or the local network (Ollama).
+
+    Claude and ChatGPT are online services; an ``openai`` provider pointed at a server of the
+    local network (vLLM on a GB10) is local too.
+    """
+    from urllib.parse import urlsplit
+
+    if name.lower() == "ollama":
+        return True
+    host = (urlsplit(base_url).hostname or "") if base_url else ""
+    if not host:
+        return False
+    import ipaddress
+
+    if host in ("localhost",) or host.endswith(".local") or host.endswith(".lan"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_private or address.is_loopback
+
+
 def make_provider(config: Config) -> LLMProvider:
     """Provider configured in ``[ai]`` (``provider``, ``model``, ``base_url``, ``context``)."""
     name = str(config.get("ai.provider", "ollama")).lower()

@@ -221,6 +221,30 @@ def resolve_params(
     return out
 
 
+def param_origins(
+    decl: Iterable[Param],
+    given: Mapping[str, Any],
+    signal: Any = None,
+    config: Any = None,
+) -> dict[str, str]:
+    """Where each value of :func:`resolve_params` comes from.
+
+    Returns ``{name: origin}`` with origin ``"call"``, ``"signal"`` (``Param.from_signal``),
+    ``"config"`` (``[analysis]`` section) or ``"default"``, following the same precedence.
+    """
+    out: dict[str, str] = {}
+    for p in decl:
+        if p.name in given:
+            out[p.name] = "call"
+        elif p.from_signal and getattr(signal, p.from_signal, None) is not None:
+            out[p.name] = "signal"
+        elif config is not None and config.get(f"analysis.{p.name}") is not None:
+            out[p.name] = "config"
+        else:
+            out[p.name] = "default"
+    return out
+
+
 def params_schema(decl: Iterable[Param]) -> dict:
     """JSON schema (object) for a list of parameters."""
     return {

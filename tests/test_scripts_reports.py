@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -79,3 +80,24 @@ def test_report_generation(tmp_path, white_noise):
 
         produced = render_report(qmd, ["html"])
         assert produced[0].exists()
+
+
+def test_batch_progress_stop_and_summary(tmp_path, files):
+    from onthesignal.scripts import batch_summary
+
+    bad = tmp_path / "bad.mseed"
+    bad.write_text("not a miniseed file")
+    calls = []
+    rows = batch("noise", [*files, str(bad)],
+                 on_progress=lambda done, total, path, rows: calls.append(
+                     (done, total, path.name if path else None, len(rows))))
+    names = [Path(f).name for f in files]
+    assert calls == [(0, 3, names[0], 0), (1, 3, names[1], 1), (2, 3, "bad.mseed", 2),
+                     (3, 3, None, 3)]
+    summary = batch_summary(rows, "noise", ["data/*.mseed"], {"fmax": 10.0})
+    table = summary.tables["batch"]
+    assert len({tuple(r) for r in table}) == 1  # same columns on every row
+    assert "rms [counts]" in table[0] and table[2]["error"] and table[0]["error"] == ""
+    assert summary["n_failures"] == 1 and summary["n_signals"] == 3 and summary.warnings
+    stopped = batch("noise", files, should_stop=lambda: True)
+    assert stopped == []
