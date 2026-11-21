@@ -17,3 +17,9 @@ docs/reference/
 # Editor swap files
 *.swp
 *.swo
+
+# Data kept on this computer: files uploaded through the web interface (up to 1 GB each) and
+# day files of SDS archives (about 100 MB each, more than GitHub accepts). Files of
+# data/uploads/ already in git stay versioned; `git add -f` adds another one on purpose.
+data/uploads/
+*.D.[0-9][0-9][0-9][0-9].[0-9][0-9][0-9]
