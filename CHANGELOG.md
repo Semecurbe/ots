@@ -151,12 +151,23 @@ The project follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- AppImage: `web`, `acq`… printed `onthesignal desktop: error: unrecognized arguments: -s -c`
+  and the desktop window could not start its server (`unrecognized arguments: -m …` in
+  `desktop-server.log`). In an AppImage of python-appimage, `sys.executable` is the AppImage
+  itself, whose entry point is the desktop application: child processes (the server of the
+  window, the processes of `multiprocessing` that NiceGUI starts) now run the Python of the
+  image (`onthesignal.appimage`). The desktop window also stops its server on Ctrl+C, at the
+  end of the terminal and on SIGTERM; `python -m onthesignal` runs the command line.
 - Web interface: a miniSEED file without a miniSEED extension, as the day files of an SDS
   archive (`XX.LORA.HA.BHE.D.2026.264`), was opened in the text editor (refused as larger than
   the editor limit) instead of being loaded. Signal files are now recognized by their content
   (`onthesignal.io.is_miniseed`, `is_signal_file`): click, upload, context menu, Ctrl+P and
   batch patterns; `detect_format` reads them as miniSEED. Their title keeps the day of the
   year (`XX.LORA.HA.BHE.D.2026.264` instead of `XX.LORA.HA.BHE.D.2026`).
+- Web interface: the work area and the side panels start right under the header line (an
+  empty band of 16 pixels was left by NiceGUI 4), the header and the status bar have their
+  intended height again (45 and 20 pixels instead of 69 and 52), and the page no longer
+  scrolls: the work area fills the height left by the header and the status bar.
 - Display of long records: the min/max envelope is computed by blocks of about 2 million
   samples (a day at 250 Hz: 0.2 s instead of 0.7 s, about 250 MB of temporary memory instead
   of 700 MB); the ticks of a counts axis are whole numbers (`-400000` instead of `-4.0e+5`).

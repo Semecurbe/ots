@@ -18,6 +18,9 @@ from .._version import __version__
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from ..appimage import use_image_python
+
+    use_image_python()  # in the AppImage, child processes must run Python, not the AppImage
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "acq":
         from ..seedlink.acquisition import main as acq_main

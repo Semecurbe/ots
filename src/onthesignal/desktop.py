@@ -74,9 +74,12 @@ def free_port() -> int:
 
 
 def server_command(project: Path, port: int, files: Sequence[str]) -> list[str]:
-    """Command of the server child process (the same Python, so the AppImage works too)."""
-    return [sys.executable, "-m", "onthesignal.cli.main", "web", "--no-browser",
-            "--host", "127.0.0.1", "--port", str(port), "--project", str(project), *files]
+    """Command of the server child process: the same Python (in the AppImage, the Python of
+    the image, not the AppImage, see :mod:`onthesignal.appimage`)."""
+    from .appimage import python_command
+
+    return python_command("-m", "onthesignal", "web", "--no-browser", "--host", "127.0.0.1",
+                          "--port", str(port), "--project", str(project), *files)
 
 
 def wait_for(url: str, timeout: float = 90.0, alive: Any = None) -> bool:
@@ -120,6 +123,7 @@ class Server:
         self.url = f"http://127.0.0.1:{self.port}/"
         self.log = log_path(project)
         env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST_")}
+        env["PYTHONUNBUFFERED"] = "1"  # the log shows each line at once (failure page)
         self._log_file = self.log.open("w", encoding="utf-8")
         self.process = subprocess.Popen(server_command(project, self.port, files),
                                         cwd=project, stdout=self._log_file,
@@ -200,7 +204,10 @@ def default_project(given: str | None) -> Path | None:
 # ---------------------------------------------------------------------------------- Qt window
 def run_qt(args: argparse.Namespace) -> int:
     """The interface in a Qt window with the Chromium engine of Qt WebEngine."""
-    from PySide6.QtCore import QObject, QSettings, Qt, QUrl, Signal
+    # Messages of Qt's platform layer (Wayland text input, portal registration) are noise for
+    # the user; QT_LOGGING_RULES set by the user wins.
+    os.environ.setdefault("QT_LOGGING_RULES", "qt.qpa.*=false")
+    from PySide6.QtCore import QObject, QSettings, Qt, QTimer, QUrl, Signal
     from PySide6.QtGui import QDesktopServices, QIcon
     from PySide6.QtWebEngineCore import (
         QWebEnginePage,
@@ -312,9 +319,22 @@ def run_qt(args: argparse.Namespace) -> int:
     threading.Thread(target=lambda: ready.done.emit(wait_for(server.url, alive=server.alive)),
                      daemon=True).start()
     window.show()
+
+    # Ctrl+C in the terminal (SIGINT), its closing (SIGHUP) and SIGTERM close the window, which
+    # stops the server. Python runs signal handlers only when it has the hand: the timer gives
+    # it the hand during the loop of Qt.
+    def close_on_signal(signum: int, frame: Any) -> None:
+        window.close()
+
+    for sig in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, close_on_signal)
+    tick = QTimer()
+    tick.timeout.connect(lambda: None)
+    tick.start(250)
     try:
         return int(app.exec())
     finally:
+        tick.stop()
         server.stop()
         import shiboken6
 
@@ -359,6 +379,9 @@ def run_browser(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    from .appimage import use_image_python
+
+    use_image_python()  # child processes run Python, not the AppImage
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and (argv[0] in CLI_COMMANDS or argv[0] == "--console"):
         from .cli.main import main as cli_main

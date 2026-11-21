@@ -215,15 +215,24 @@ the data again.
   navigations that fail with the offline page. `python -m onthesignal.web.pwa` draws the icons
   again. The browser test `test_installable_as_an_application` asks Chrome, through the
   DevTools protocol, for the installability errors.
-- **Desktop window.** `onthesignal.desktop` starts `onthesignal web` with the same Python on a
-  free port (`Server`), shows it in a `QWebEngineView` with its own persistent profile, saves
-  the downloads where the user chooses, opens the other sites in the browser, and stops the
-  server (SIGTERM, then kill after 15 s) when the window closes. The server runs in its own
-  process group and the whole group is signalled: in the AppImage, `sys.executable` is the
-  shell wrapper of python-appimage, which starts the interpreter without `exec`, so stopping
-  the direct child alone left the server running (`test_desktop_server_stops_its_whole_process_group`).
-  The page is deleted before its profile (Qt warns otherwise). Without PySide6, `run_browser`
-  opens a Chrome `--app` window.
+- **Desktop window.** `onthesignal.desktop` starts `python -m onthesignal web` on a free port
+  (`Server`, unbuffered output in `.onthesignal/logs/desktop-server.log`), shows it in a
+  `QWebEngineView` with its own persistent profile, saves the downloads where the user chooses,
+  opens the other sites in the browser, and stops the server (SIGTERM, then kill after 15 s)
+  when the window closes, and on SIGINT (Ctrl+C), SIGHUP (end of the terminal) or SIGTERM (a
+  `QTimer` gives Python the hand to run the handlers during the loop of Qt). The server runs
+  in its own process group and the whole group is signalled
+  (`test_desktop_server_stops_its_whole_process_group`). The page is deleted before its
+  profile (Qt warns otherwise). Without PySide6, `run_browser` opens a Chrome `--app` window.
+- **Python of the AppImage.** python-appimage makes `sys.executable` the AppImage itself (its
+  Python reads `APPIMAGE_COMMAND`), so that a Python AppImage can start itself; the entry point
+  of ours is the desktop application, which refused the arguments of a child Python
+  (`unrecognized arguments: -s -c`, from the resource tracker of the process pool that NiceGUI
+  creates). `onthesignal.appimage.python_executable()` gives the interpreter of the image
+  (`<APPDIR>/opt/python3.x/bin/python3.x`): the server of the window is started with it
+  (`python_command`), and `use_image_python()`, called by the entry points, gives it to
+  `multiprocessing`. An extracted image (`squashfs-root`) does not show the problem, since
+  `APPIMAGE` is not set there: test with `APPIMAGE_EXTRACT_AND_RUN=1 ./onthesignal-…AppImage`.
 - **AppImage.** `packaging/appimage/` is a recipe of python-appimage: `requirements.txt`
   (written by `build_appimage.py`: the wheel of the project with the `web,ai,desktop` extras),
   `entrypoint.sh` (`python -m onthesignal.desktop`), the `.desktop` entry, the icon and the
@@ -282,7 +291,13 @@ complete list is in the
   terminal font is set in the options of `ui.xterm`, the viewport background in the CSS of
   `web/ui/workbench.py`;
 - Quasar 2.35 wraps the name of an icon in a `<span>`: the browser tests find an icon button
-  with `button:has(i:has-text('tune'))`.
+  with `button:has(i:has-text('tune'))`;
+- the padding and gap that NiceGUI gives its containers (page content, header, footer,
+  drawers, tab panels, cards) are in a CSS layer above Quasar's: a spacing class such as
+  `q-pa-none` or `q-py-xs` has no effect on them. Use a Tailwind class (`p-0`, `gap-0`,
+  utilities layer) or an unlayered rule, as the CSS of `web/ui/workbench.py` does for the frame
+  of the page; the height of the work area comes from the measured height of the header and
+  the footer (`--ots-frame`, `FRAME_SCRIPT`), so that the page never scrolls.
 
 ## Tests
 

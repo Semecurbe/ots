@@ -69,3 +69,4 @@ python packaging/appimage/build_appimage.py      # writes dist/onthesignal-<vers
 | Same message after `fusermount3: file descriptor 5 is not a socket` | the terminal belongs to an application installed as a snap (the integrated terminal of VS Code, for example): the AppArmor profile of `fusermount3` (Ubuntu 25.10 and later) refuses it. Launch the AppImage from the menu of applications, the file manager or another terminal, or with `--appimage-extract-and-run` |
 | The window stays blank | the sandbox of Chromium is refused by the system: `QTWEBENGINE_DISABLE_SANDBOX=1 ./onthesignal-…AppImage` |
 | Messages of the server | `.onthesignal/logs/desktop-server.log` in the project |
+| `Gtk-WARNING … Theme parsing error`, `Failed to delete the database` in the terminal | messages of the GTK theme and of the Chromium engine, without effect on the application |

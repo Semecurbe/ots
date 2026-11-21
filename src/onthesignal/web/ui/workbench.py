@@ -68,7 +68,16 @@ body { font-size: 13px; }
 .ots-term .xterm .xterm-viewport { background-color: #fcfcfb !important; }  /* xterm.js 6 */
 .u-legend { font-size: 11.5px; }
 .u-legend .u-marker { width: 10px; height: 3px; }
-.nicegui-content { padding: 0; }
+/* Frame of the page: NiceGUI 4 puts the padding and gap of its containers in a layer above
+   Quasar's spacing classes, which would not apply alone. The work area and the drawers start
+   right under the header line; the splitter fills the height left by the header and the
+   footer (--ots-frame, measured by FRAME_SCRIPT), so that the page does not scroll. */
+.nicegui-content { padding: 0; gap: 0; }
+.nicegui-drawer.q-pa-none { padding: 0; }
+.nicegui-header.q-py-xs { padding-top: 4px; padding-bottom: 4px; }
+.nicegui-footer.q-py-none { padding-top: 0; padding-bottom: 0; }
+.nicegui-header.q-px-md, .nicegui-footer.q-px-md { padding-left: 16px; padding-right: 16px; }
+.ots-main { height: calc(100vh - var(--ots-frame, 92px)); }
 .q-drawer__content { overflow-x: hidden; }
 .q-drawer .q-splitter, .q-drawer .q-splitter__panel { min-width: 0; max-width: 100%; }
 .q-item__section--main { min-width: 0; }
@@ -128,6 +137,24 @@ THEME_SCRIPT = """<script>
 })();
 </script>"""
 
+#: Height of the header and the footer in --ots-frame (they may wrap on a narrow window).
+FRAME_SCRIPT = """<script>
+(() => {
+  const start = () => {
+    const header = document.querySelector(".q-header");
+    const footer = document.querySelector(".q-footer");
+    if (!header || !footer) { setTimeout(start, 100); return; }
+    const fit = () => document.documentElement.style.setProperty(
+      "--ots-frame", header.offsetHeight + footer.offsetHeight + "px");
+    const observer = new ResizeObserver(fit);
+    observer.observe(header);
+    observer.observe(footer);
+    fit();
+  };
+  start();
+})();
+</script>"""
+
 VIEWS: list[tuple[str, str, str]] = [
     ("files", "folder", "Files"),
     ("analyses", "query_stats", "Analyses"),
@@ -173,6 +200,7 @@ class Workbench:
                          "if ((e.ctrlKey || e.metaKey) && ['k', 'p'].includes(e.key)) "
                          "e.preventDefault(); }, true);</script>")
         ui.add_body_html(THEME_SCRIPT % json.dumps(TERMINAL_THEMES))
+        ui.add_body_html(FRAME_SCRIPT)
         theme = str(self.state.config.get("web.theme", "auto")).lower()
         self.dark = ui.dark_mode({"dark": True, "light": False}.get(theme))
         self.layout_root = ui.element("div").classes("w-full")
@@ -222,7 +250,7 @@ class Workbench:
                 self.status_ai = ui.label("")
                 self.status_clock = ui.label("")
         with ui.splitter(horizontal=True, value=66) \
-                .classes("w-full").style("height: calc(100vh - 92px)") as self.main_split:
+                .classes("w-full ots-main") as self.main_split:
             with self.main_split.before:
                 self.work = WorkArea(self)
                 self.work.build()

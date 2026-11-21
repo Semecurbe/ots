@@ -498,7 +498,8 @@ def test_desktop_launcher_helpers(tmp_path, monkeypatch):
     from onthesignal import desktop
 
     command = desktop.server_command(tmp_path, 8123, ["a.mseed"])
-    assert command[1:4] == ["-m", "onthesignal.cli.main", "web"]
+    start = command.index("-m")
+    assert command[start + 1:start + 3] == ["onthesignal", "web"]  # python -m onthesignal
     assert "--no-browser" in command and command[-1] == "a.mseed"
     assert command[command.index("--host") + 1] == "127.0.0.1"
     assert desktop.default_project(str(tmp_path)) == tmp_path.resolve()
@@ -707,3 +708,36 @@ def test_noise_trace_zoom_and_linked_rows(state):
     assert table["columns"] == ["period", "start_s", "duration_s", "frequency_hz"]
     assert isinstance(table["values"][0][3], float) and len(table["rows"]) == freq["n_periods"]
     assert freq.to_text().count("\n") < 100  # the console shows the first rows only
+
+
+def test_child_processes_run_the_python_of_the_appimage(tmp_path, monkeypatch):
+    """In the AppImage, sys.executable is the AppImage itself (python-appimage), whose entry
+    point is the desktop application: the server of the window and the processes started by
+    multiprocessing (NiceGUI) must run the Python of the image."""
+    import multiprocessing
+    import multiprocessing.spawn
+    import sys
+    from types import SimpleNamespace
+
+    from onthesignal import appimage, desktop
+
+    prefix = tmp_path / "opt" / "python3.x"
+    (prefix / "bin").mkdir(parents=True)
+    python = prefix / "bin" / f"python{sys.version_info[0]}.{sys.version_info[1]}"
+    python.write_text("#!/bin/sh\n")
+    image = tmp_path / "onthesignal-0.1.0-x86_64.AppImage"
+    monkeypatch.setattr(sys, "executable", str(image))
+    monkeypatch.setattr(sys, "prefix", str(prefix))
+    monkeypatch.setenv("APPIMAGE", str(image))
+    assert appimage.python_executable() == str(python)
+    monkeypatch.setattr(sys, "flags", SimpleNamespace(no_user_site=1))  # python -s
+    command = desktop.server_command(tmp_path, 8123, [])
+    assert command[:5] == [str(python), "-s", "-m", "onthesignal", "web"]
+    before = multiprocessing.spawn.get_executable()
+    try:
+        appimage.use_image_python()
+        assert os.fsdecode(multiprocessing.spawn.get_executable()) == str(python)
+    finally:
+        multiprocessing.set_executable(before)
+    monkeypatch.delenv("APPIMAGE")  # elsewhere, sys.executable is kept
+    assert appimage.python_executable() == str(image)

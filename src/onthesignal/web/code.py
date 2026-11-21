@@ -11,7 +11,6 @@ from __future__ import annotations
 import json
 import shutil
 import subprocess
-import sys
 import warnings
 from pathlib import Path
 from typing import Any
@@ -96,7 +95,10 @@ def ruff_binary() -> str | None:
 
         return str(find_ruff_bin())
     except Exception:
-        found = shutil.which("ruff", path=str(Path(sys.executable).parent)) or shutil.which("ruff")
+        from ..appimage import python_executable
+
+        found = shutil.which("ruff", path=str(Path(python_executable()).parent)) or \
+            shutil.which("ruff")
         return found
 
 
