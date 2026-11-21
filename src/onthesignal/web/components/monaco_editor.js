@@ -3,7 +3,9 @@
 // Events: "ready", "dirty" (bool), "save" (text), "run" (text), "run_selection" (text),
 // "lint" (text, after a pause of typing in Python) and "request" ({id, kind, code, line,
 // column}: completion, signature help and hover of Python, answered by the server with Jedi
-// through resolveRequest).
+// through resolveRequest). With an "original" text, the component is a diff view (§9.6): the
+// original on the left, read-only, and the proposed text on the right, still editable; the
+// "diff" event gives the number of changed blocks.
 let monacoLoading = null;
 const EDITORS = new Map(); // model URI → editor component (the providers are global)
 
@@ -97,26 +99,47 @@ export default {
     language: { type: String, default: "plaintext" },
     readOnly: { type: Boolean, default: false },
     baseUrl: String,
+    // The text is not the saved one (editor created again with unsaved changes).
+    startDirty: { type: Boolean, default: false },
+    // Diff view: the current text, compared with "value" (the proposal).
+    original: { type: String, default: null },
   },
   async mounted() {
     const monaco = await loadMonaco(this.baseUrl);
-    this.editor = monaco.editor.create(this.$el, {
-      value: this.value || "",
-      language: this.language,
-      readOnly: this.readOnly,
-      automaticLayout: true,
-      fontSize: 13,
-      tabSize: 4,
-      insertSpaces: true,
-      scrollBeyondLastLine: false,
-      minimap: { enabled: true },
-      theme: document.body.classList.contains("body--dark") ? "vs-dark" : "vs",
-    });
+    const theme = document.body.classList.contains("body--dark") ? "vs-dark" : "vs";
+    if (this.original !== null && this.original !== undefined) {
+      this.diff = monaco.editor.createDiffEditor(this.$el, {
+        automaticLayout: true, fontSize: 13, readOnly: this.readOnly, originalEditable: false,
+        renderSideBySide: true, scrollBeyondLastLine: false, minimap: { enabled: false }, theme,
+      });
+      this.models = [monaco.editor.createModel(this.original, this.language),
+        monaco.editor.createModel(this.value || "", this.language)];
+      this.diff.setModel({ original: this.models[0], modified: this.models[1] });
+      this.diff.onDidUpdateDiff(() => this.$emit("diff", (this.diff.getLineChanges() || []).length));
+      this.editor = this.diff.getModifiedEditor();
+    } else {
+      this.editor = monaco.editor.create(this.$el, {
+        value: this.value || "",
+        language: this.language,
+        readOnly: this.readOnly,
+        automaticLayout: true,
+        fontSize: 13,
+        tabSize: 4,
+        insertSpaces: true,
+        scrollBeyondLastLine: false,
+        minimap: { enabled: true },
+        theme,
+      });
+    }
     this.markSaved();
+    if (this.startDirty) {
+      this.savedVersion = -1; // modified until saved, even after undoing every change
+      this.dirty = true;
+    }
     this.pending = new Map();
     this.requests = 0;
     this.uri = this.editor.getModel().uri.toString();
-    EDITORS.set(this.uri, this);
+    if (!this.diff) EDITORS.set(this.uri, this); // a diff view asks the server nothing
     if (this.language === "python") registerPython(monaco);
     this.editor.onDidChangeModelContent(() => {
       const dirty = this.editor.getModel().getAlternativeVersionId() !== this.savedVersion;
@@ -138,7 +161,10 @@ export default {
   unmounted() {
     EDITORS.delete(this.uri);
     clearTimeout(this.lintTimer);
-    if (this.editor) this.editor.dispose();
+    if (this.diff) {
+      this.diff.dispose();
+      for (const model of this.models || []) model.dispose();
+    } else if (this.editor) this.editor.dispose();
   },
   methods: {
     getValue() {
@@ -148,6 +174,15 @@ export default {
       if (!this.editor) return;
       this.editor.setValue(text);
       this.markSaved();
+    },
+    applyText(text) {
+      // Replace the whole text in one edit, undone by Ctrl+Z (a change accepted in a diff
+      // view): the file is modified, not saved.
+      if (!this.editor) return;
+      const model = this.editor.getModel();
+      this.editor.pushUndoStop();
+      this.editor.executeEdits("onthesignal", [{ range: model.getFullModelRange(), text }]);
+      this.editor.pushUndoStop();
     },
     markSaved() {
       if (!this.editor) return;

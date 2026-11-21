@@ -11,6 +11,7 @@
 | v1.6 | 2026-11-20 | Navigation dans les graphiques comme dans matplotlib (§5.1) : vue complète, vues précédente et suivante, modes zoom et déplacement ; marge transmise autour de la fenêtre d'un tracé temporel (§5.2) |
 | v1.7 | 2026-11-20 | Zoom par rectangle sur les deux axes (§5.1) ; superposition de signaux choisis par cases à cocher dans l'encart des objets (§6.1, §6.4) ; modification des échantillons depuis le terminal (§10.2) ; application installable (PWA), fenêtre de bureau et AppImage (§3.5) |
 | v1.8 | 2026-11-20 | Lot W9 réalisé : précisions sur le thème sombre (§4.8), l'aide à l'écriture de Python (§9.4), le chat (§11.2, §11.4, §11.5) et la vue `Settings` (§13) ; points P2 réalisés : niveaux ±PE/2 (§5.2), variables en tableau et en arborescence (§6.1), `plot()` (§10.3), `Ask AI about selection` (§9.6), `Regenerate` (§11.2) |
+| v1.9 | 2026-11-21 | Derniers points P2 réalisés : partage de la zone de travail (§4.3), tracé du bruit filtré de `noise` et valeurs période par période de `frequency` et `period` (§7.4, §7.5), mise en évidence réciproque des lignes de résultats et des éléments du graphique, tableaux triés et exportés, rechargement de la fenêtre zoomée d'un résultat (§7.5), vue différentielle des propositions de l'IA (§9.6), formules LaTeX et modification de la dernière question dans le chat (§11.2) |
 
 ## Lecture du document
 
@@ -129,7 +130,7 @@ Une instance du serveur sert **un utilisateur, un projet et une session**. Ce n'
 - NiceGUI 4 demande Python ≥ 3.11, version déjà imposée par la v2 (v2 §4.1), et des navigateurs récents (§14). Ses changements de comportement (exception `CancelledError` de `run.io_bound`, identifiants `ng-…` des éléments, `ui.tab` obligatoirement dans `ui.tabs`, fond de xterm.js 6…) sont décrits dans la documentation développeur (`docs/developer/web-phase.qmd`).
 - Toutes les bibliothèques JavaScript sont **embarquées dans le paquet** (versions figées, licences jointes) et servies par l'application : aucun CDN, fonctionnement hors ligne (v2 §20).
 - Monaco est chargé à la première ouverture d'un éditeur, pas au démarrage.
-- `pip install -e ".[web]"` installe NiceGUI 4 et Jedi (`web = ["nicegui>=4.0,<5", "jedi>=0.19"]` dans `pyproject.toml`) ; ruff y sera ajouté avec les diagnostics de l'éditeur (P2, lot W9).
+- `pip install -e ".[web]"` installe NiceGUI 4, Jedi, ruff (diagnostics de l'éditeur, lot W9) et latex2mathml (formules du chat) : `web = ["nicegui>=4.0,<5", "jedi>=0.19", "ruff>=0.5", "latex2mathml>=3.77"]` dans `pyproject.toml`.
 
 ### 3.2 Couches logicielles
 
@@ -229,6 +230,7 @@ La colonne de gauche affiche en permanence l'encart `Objects` (§6.1). La barre 
 
 - Onglets typés : tracé temporel d'un ou plusieurs signaux, résultat d'analyse, fichier ouvert dans l'éditeur, aperçu de rapport, tableau de bord temps réel, progression d'acquisition, aide.
 - Les onglets se déplacent et se ferment ; ils indiquent une modification non enregistrée (fichiers) ou une activité (tâche en cours). Partage de la zone en deux, côte à côte : P2.
+- Réalisation du partage (P2) : bouton à droite des onglets, Ctrl+\ ou palette (*Split the work area*). L'onglet actif passe à droite si la gauche garde un autre onglet ; sinon le prochain onglet ouvert s'affiche à droite. Un onglet s'ouvre du côté utilisé en dernier (marqué au-dessus de ses onglets) ; clic droit sur un onglet, *Move to the other side*, pour le changer de côté. La fermeture du côté droit ramène ses onglets à gauche ; la séparation se déplace à la souris. Un éditeur déplacé garde son texte non enregistré.
 - Un clic sur un objet de l'encart l'affiche (§6.1). Un résultat produit par le terminal Python, l'IA ou un script s'ouvre dans un onglet sans retirer le focus du champ en cours de saisie.
 
 ### 4.4 Palette de commandes
@@ -520,6 +522,8 @@ Comportement :
 - Le panneau est accolé au graphique, dans le même onglet ; la séparation est réglable. À 1920×1080, les avertissements, les chiffres clés et le début du détail sont visibles sans défilement.
 - Un clic sur une valeur la copie ; `Copy table` copie le détail en texte tabulé (pour un tableur) ; `Export` produit le CSV ou le JSON du résultat.
 - P2 : le survol d'une ligne met en évidence l'élément correspondant du graphique (raie parasite, harmonique, bande d'étude, écart maximal au NLNM), et inversement.
+- Réalisation (P2) : les éléments de la figure portent une référence (`ref` des repères, bandes et niveaux), que la mise en page associe aux valeurs (`ResultsSpec.links`) et aux lignes des tableaux (`row_refs`, par exemple `H{order}` pour les harmoniques). Les libellés liés sont soulignés en pointillés ; le survol se traite dans le navigateur, sans aller-retour avec le serveur. Liens réalisés : bande d'étude et raies secteur supprimées, fondamentale, plus grande raie parasite, harmoniques (lignes du tableau), maximum de PSD − NLNM, niveaux ±RMS et extrêmes du bruit filtré de `noise`, moyenne de `frequency` et `period`, fronts de `delay50`. Les tableaux se trient sur leurs valeurs (les nombres comme des nombres), se copient (texte tabulé) et s'exportent en CSV ; au-delà de 25 lignes, ils sont paginés. Après un zoom, la fenêtre visible d'un résultat (long spectre, bruit filtré) est renvoyée à pleine résolution.
+- Réalisation de §7.4 (P2) : `noise` affiche le bruit filtré qu'il a mesuré (sans tendance, limité à la bande d'étude, en unité physique quand le signal en a une), avec les niveaux ±RMS et ses deux extrêmes ; ce tracé est gardé hors du JSON du résultat (`Result.extra`). `frequency` (méthode `zero_crossing`) et `period` tracent la valeur de chaque période avec la moyenne en niveau, et donnent le tableau des périodes (début, durée, fréquence ; les 10 000 premières).
 - Avec `dynamic`, chaque sous-onglet de figure (SINAD, SFDR, THD) affiche sous son graphique les résultats de l'analyse correspondante ; l'onglet de synthèse les regroupe.
 - Un résultat sans mise en page dédiée (script utilisateur) affiche toutes ses valeurs dans le détail.
 - Actions de l'onglet : `Edit parameters and re-run`, `Run on another signal`, `Add to report`, `Export` (JSON, CSV, figure), `Ask AI about this result` (joint au chat le résumé du résultat, sans les échantillons).
@@ -608,6 +612,7 @@ Comportement :
 
 - `Ask AI about selection` joint la sélection à un message du chat (§11).
 - Les modifications de code proposées par l'IA et les scripts générés (`/ai_script`) s'affichent dans une **vue différentielle** Monaco ; l'utilisateur les accepte ou les refuse (en bloc ; bloc par bloc : P3). Rien n'est enregistré ni exécuté sans son accord (v2 §17.6, §17.7).
+- Réalisation (P2) : après `Ask AI` dans l'éditeur, chaque bloc de code de la réponse a un bouton *Review in <fichier>* : la vue différentielle compare le fichier et le fichier où le code demandé est remplacé par la proposition. La proposition (à droite) reste modifiable ; *Accept* l'applique à l'éditeur en une modification (annulée par Ctrl+Z, à enregistrer), *Reject* ou la fermeture de l'onglet laisse le fichier inchangé. Le script de `/ai_script` (terminal ou chat) s'ouvre dans la même vue avant toute écriture : *Accept* l'écrit dans `scripts/` et l'ouvre dans l'éditeur, *Reject* n'écrit rien ; le terminal attend la décision.
 
 ## 10. Terminal Python
 
@@ -711,6 +716,7 @@ Converser avec l'assistant (v2 §17) dans un panneau latéral, voir ce qu'il ex�
 - Saisie sur plusieurs lignes : Entrée envoie, Shift+Entrée passe à la ligne (P1).
 - Un message qui commence par `/` exécute la commande, comme dans la console (`/init`, `/lnm S1`) ; `/` ouvre la liste des commandes dans le champ de saisie (P1). `@` cite un signal, un résultat ou un fichier pour le joindre au contexte (P2).
 - `Stop` interrompt la génération ; `New chat` démarre une nouvelle conversation (P1). `Regenerate` et modification du dernier message : P2.
+- Réalisation (P2) : les formules sont converties en MathML sur le serveur (latex2mathml, dépendance `web`) et dessinées par le navigateur : `$…$` et `\(…\)` dans le texte, `$$…$$` et `\[…\]` en bloc ; le code n'est pas modifié et une formule non reconnue reste en texte. Le bouton de modification remet la dernière question dans le champ de saisie : l'envoi la remplace, avec sa réponse, par la question modifiée.
 - Pendant l'attente, la durée écoulée est affichée, utile avec un modèle local lent (P1). Réponse affichée au fil de la génération (P2 : fournisseurs en mode flux, annexe B). Raisonnement du modèle, lorsqu'il est fourni (Qwen3.8, Claude), dans un bloc repliable (P2).
 - Historique des conversations enregistré dans `.onthesignal/chats/`, rouvrable et exportable en Markdown (P2).
 - Réalisation (P2) : réponse et raisonnement affichés au fil de la génération (Ollama, Claude, ChatGPT) et interruptibles ; mentions `@` avec suggestions (signaux et résultats sous forme de résumés, fichiers texte du projet limités à 20 000 caractères) ; `Allow for this chat` mémorisé par outil jusqu'au prochain `New chat` ; tokens de la dernière requête rapportés à la taille du contexte.
@@ -1028,7 +1034,7 @@ Ces adaptations ont été relevées dans le code actuel. Elles sont réalisées 
 | Panneau de résultats | `Result.rows()` fournit libellé, valeur et équivalent physique | réutilisé tel quel ; la mise en page (R11) ajoute les chiffres clés, les groupes et les tableaux de chaque fonction (§7.5) |
 | Acquisition et temps réel (`seedlink/`) | déjà en tâche de fond, avec rappels d'avancement (R7) | pas d'adaptation de fond : l'interface lit les instantanés (R12). Ajouts du lot W8 : dernières secondes de chaque voie (`latest`), FFT ou DSP à la demande (`snapshot(spectrum=…)`), enregistrement activé ou arrêté en cours d'exécution (`set_record_dir`). Correction : avec ObsPy 1.5, la connexion à un vrai serveur échouait toujours (délai de connexion absent) |
 | Lots (`scripts.batch`) | tableau rendu à la fin du lot | suivi fichier par fichier (`on_progress`), arrêt entre deux fichiers (`should_stop`), résultat `batch` pour le rapport global (`batch_summary`) |
-| Dépendances (`pyproject.toml`) | `web = ["nicegui"]` | NiceGUI 4 (`nicegui>=4.0,<5`) et Jedi (ruff en P2) ; bibliothèques JavaScript embarquées (§3.1) |
+| Dépendances (`pyproject.toml`) | `web = ["nicegui"]` | NiceGUI 4 (`nicegui>=4.0,<5`), Jedi, ruff et latex2mathml ; bibliothèques JavaScript embarquées (§3.1) |
 
 ## Annexe C — Références
 

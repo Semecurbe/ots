@@ -21,8 +21,10 @@ from onthesignal.core.signal import Signal
 from onthesignal.plot.layouts import (
     comparison_spec,
     comparison_view,
+    figure_refs,
     figure_spec,
     figure_specs,
+    result_curve,
     results_view,
 )
 from onthesignal.processing.display import decimate_xy, envelope_indices, window_stats
@@ -191,8 +193,8 @@ def test_every_layout_refers_to_existing_curves_and_values(results):
     optional = {"dynamic": {"dr"}}  # dynamic range only with a noise record (§7.5)
     for kind, result in results.items():
         for title, spec in figure_specs(result):
-            for key in spec.curve_keys():
-                assert key in result.curves, (kind, title, key)
+            for key in spec.curve_keys():  # a curve, or a trace kept in Result.extra
+                assert len(result_curve(result, key).x), (kind, title, key)
             for key in spec.results.headline:
                 assert key in result.values or key in optional.get(kind, ()), (kind, key)
             view = results_view(result, spec.results)
@@ -234,7 +236,17 @@ def test_lnm_and_noise_layouts(results):
     dsp = results_view(results["noise_dsp"])
     assert [h["key"] for h in dsp["headline"]] == ["rms", "rms_psd", "dr", "enob"]
     assert dsp["headline"][0]["physical"].endswith("V")
-    assert figure_spec(results["noise"]).panels == []
+    # noise: the band-limited noise above the results (§7.4), kept out of the JSON
+    noise = results["noise"]
+    spec = figure_spec(noise)
+    (trace,) = spec.panels
+    assert trace.id == "trace" and trace.y.unit == "V" and trace.x.time_origin.endswith("Z")
+    rms = noise["rms_phys"]
+    assert sorted(h.y for h in trace.hlines) == pytest.approx([-rms, rms])
+    assert figure_refs(spec) == {"rms", "pp"}
+    curve = result_curve(noise, "trace")
+    assert curve.x.size == noise["npts"] and np.std(curve.y) == pytest.approx(rms, rel=1e-4)
+    assert "trace" not in noise.to_json() and len(noise.to_json()) < 20_000
 
 
 def test_spectrogram_layout_is_an_interactive_heatmap(results):
@@ -310,3 +322,27 @@ def test_console_records_changes_of_the_samples(console):
     assert sig.data_version == version + 2
     console.execute("S2 = S1 + 3")
     assert console.session.signals["S2"].history[-1] == "offset +3 counts"
+
+
+def test_sds_day_files_are_recognized_by_their_content(tmp_path):
+    """The day files of an SDS archive (NET.STA.LOC.CHA.D.YEAR.DAY) have no .mseed
+    extension: they are loaded as signals, not opened as text."""
+    from obspy import Stream, Trace, UTCDateTime
+
+    from onthesignal.io import SDS_NAME, detect_format, is_miniseed, is_signal_file, read
+
+    tr = Trace(np.arange(1000, dtype=np.int32),
+               header={"network": "XX", "station": "LORA", "location": "HA", "channel": "BHE",
+                       "sampling_rate": 250.0, "starttime": UTCDateTime(2026, 9, 21)})
+    sds = tmp_path / "XX.LORA.HA.BHE.D.2026.264"
+    Stream([tr]).write(str(sds), format="MSEED", encoding="INT32")
+    notes = tmp_path / "notes.264"
+    notes.write_text("Bench 3, shorted input\n", encoding="utf-8")
+    assert SDS_NAME.match(sds.name) and not SDS_NAME.match(notes.name)
+    assert is_miniseed(sds) and is_signal_file(sds) and detect_format(sds) == "mseed"
+    assert not is_miniseed(notes) and not is_signal_file(notes)
+    assert detect_format(notes) == "obspy" and not is_signal_file(tmp_path / "missing.264")
+    assert is_signal_file(tmp_path / "a.mseed") and not is_signal_file(tmp_path / "s.py")
+    (sig,) = read(sds)
+    assert sig.npts == 1000 and sig.id == "XX.LORA.HA.BHE" and sig.sampling_rate == 250.0
+    assert sig.title == "XX.LORA.HA.BHE.D.2026.264"  # the day of the year is not an extension

@@ -21,6 +21,9 @@ from ..processing.params import TIME_PARAMS
 from ._common import clean_params, signal_label, window_signal
 from .sinefit import estimate_frequency, fit4
 
+#: Rows of the table of the periods (the curve shows all of them).
+MAX_PERIOD_ROWS = 10_000
+
 MEASURE_PARAMS = (
     Param("method", str, "zero_crossing", choices=("zero_crossing", "sinefit", "fft"),
           help="Crossings of the mean level, 4-parameter sine fit or interpolated FFT peak"),
@@ -95,6 +98,14 @@ def _periodic(signal: Signal, p: dict, kind: str) -> tuple[Signal, Result, np.nd
         frequency = (tc.size - 1) / ((tc[-1] - tc[0]) / fs)
         r.curves["periods"] = Curve(tc[1:] / fs, periods, label="period", x_label="Time",
                                     x_unit="s", y_label="Period", y_unit="s")
+        # Each period: its start (from the start of the analysed window) and its frequency.
+        n = min(periods.size, MAX_PERIOD_ROWS)
+        r.tables["periods"] = [
+            {"period": i + 1, "start_s": float(tc[i] / fs), "duration_s": float(periods[i]),
+             "frequency_hz": float(1.0 / periods[i])} for i in range(n)]
+        if periods.size > n:
+            r.warn(f"The table of the periods shows the first {n} of {periods.size} periods "
+                   "(the curve shows all of them)")
     elif p["method"] == "sinefit":
         frequency = fit4(x, fs).frequency
     else:
@@ -118,6 +129,9 @@ def compute_frequency(signal: Signal, **params: Any) -> Result:
     r.add("frequency", float(f), "Hz", "Frequency", digits=9)
     if p["method"] == "zero_crossing":
         freqs = 1.0 / periods
+        r.curves["frequencies"] = Curve(r.curves["periods"].x, freqs, label="frequency",
+                                        x_label="Time", x_unit="s", y_label="Frequency",
+                                        y_unit="Hz")
         r.add("frequency_std", float(np.std(freqs)), "Hz", "Period-to-period dispersion")
         r.add("n_periods", int(periods.size), "", "Periods measured")
     return r

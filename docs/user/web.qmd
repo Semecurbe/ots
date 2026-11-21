@@ -85,6 +85,7 @@ do this on a trusted network, ideally with `[web] code_execution = false`.
 | Shift+Enter | run the selection (or the `# %%` cell) of the editor in the terminal |
 | Ctrl+` | show or hide the Python terminal |
 | Ctrl+Shift+I | show or hide the AI chat |
+| Ctrl+\\ | split the work area in two sides, side by side (again: one side) |
 | Drag | zoom on the rectangle drawn (*Zoom* mode; a flat drag zooms the abscissa only), or move the chart (*Move* mode) |
 | Middle button drag, Shift + mouse wheel | move along the abscissa of a chart |
 | Ctrl + mouse wheel | zoom a chart in or out around the cursor |
@@ -93,6 +94,14 @@ do this on a trusted network, ideally with `[web] code_execution = false`.
 
 The palette also runs complete commands, as in the console: `/noise S1 fmax=50` runs the
 analysis, `/noise` alone opens its form.
+
+The work area can be **split in two sides**, side by side, for instance a signal and its
+spectrogram, or two spectrograms: the split button at the right of the tabs (or Ctrl+\\, or
+the palette, *Split the work area*). The active tab goes to the right side when the left one
+keeps another tab; otherwise the next tab you open appears on the right. A tab opens on the
+side used last (marked by a line above its tabs); right-click a tab, then *Move to the other
+side*, to move it. The close button of the right side brings its tabs back to the left. The
+separator between the sides can be dragged.
 
 The theme button of the header (or the palette, *Toggle dark mode*) chooses a light or dark
 theme, or that of the system (the default, `[web] theme`). The dark theme has its own colors
@@ -115,7 +124,13 @@ swipe of a touchpad) moves along the abscissa, and Ctrl + mouse wheel zooms arou
 a plain wheel scrolls the page. The ordinate follows the visible data until a rectangle zoom
 sets it; it then stays (and moves with a vertical drag in *Move* mode) until the full view.
 The panels of a figure that share their abscissa (stacked signals, spectrogram and its time
-series) zoom and move together along it; each keeps its own ordinate.
+series) zoom and move together along it; each keeps its own ordinate. After a zoom, the visible
+window of a signal or of a result (long spectrum, band-limited noise…) is sent again at full
+resolution: the chart first shows an envelope (minimum and maximum of each pixel column), so
+that a narrow line or a single spike stays visible.
+
+The ticks of a linear axis have as many decimals as their spacing needs (`7.29999`,
+`7.30000`, `7.30001` Hz).
 
 ## Objects panel
 
@@ -140,9 +155,12 @@ shown as an alias (`R3 · r`).
 
 - **Loading.** In the *Files* view, click a miniSEED file (or right-click → *Load with
   options…*); text files open an import assistant showing the first lines, where you give the
-  number of channels, the time column and the sampling rate. Files can also be uploaded from
-  the computer of the browser (*Upload*, or drag and drop): they are saved in `data/uploads/`
-  of the project.
+  number of channels, the time column and the sampling rate. A miniSEED file is recognized by
+  its content (wave icon), so the day files of an SDS archive (`XX.LORA.HA.BHE.D.2026.264`)
+  load with a click too; *Batch on this folder…* then proposes `*.D.*`. Ctrl+P also lists the
+  signal files of the project. Files can also be uploaded from the computer of the browser
+  (*Upload*, or drag and drop, 1 GB at most, `[web] upload_max_mb`): they are saved in
+  `data/uploads/` of the project and loaded.
 - **Plot.** The time plot uses relative seconds from the UTC instant written under the axis;
   the legend shows the absolute UTC time under the cursor. Zoom with the mouse: the visible
   window is reloaded at full resolution (an isolated spike of one sample always stays
@@ -182,8 +200,22 @@ it the results of this analysis (the navigation of the charts is described in
    by side, dynamic range, ENOB);
 3. the detail table, in counts and in physical unit (click a value to copy it; *Copy table*
    copies everything for a spreadsheet);
-4. tables of the analysis (harmonics of `thd`, Δt of each edge for `delay50`…);
+4. tables of the analysis (harmonics of `thd`, Δt of each edge for `delay50`, each period of
+   `frequency` and `period`…): sorted by a click on a column (numbers as numbers), copied
+   (tab-separated) or exported in CSV with the buttons next to their title; long tables are
+   shown 25 rows per page;
 5. the parameters actually used and the traceability (signals, SHA-256, versions).
+
+**Rows linked to the chart.** A row whose label is dotted-underlined describes an element of
+the chart: hovering it highlights the element (the largest spur, a harmonic, the study band,
+the ±RMS levels, the maximum of PSD − NLNM…), with its name; hovering the element on the chart
+highlights its rows. For `thd`, each row of the harmonics table is linked to its harmonic.
+
+`noise`, which has no figure in the console, shows here the band-limited noise that it
+measured (detrended, in the study band, in physical unit when the signal has one), with the
+±RMS levels and its two extremes (peak-to-peak). `frequency` and `period` show the value of
+each period over time with the mean as a level, and the table of the periods (start, duration,
+frequency; the first 10 000 periods).
 
 The charts follow the rules of the console figures: calculation conditions above the spectra,
 removed mains lines as red dashed lines, logarithmic frequency axis, fundamental, harmonics
@@ -258,7 +290,14 @@ Help for Python:
 - A `.toml` file is checked when saved; saving `onthesignal.toml` reads the configuration
   again.
 - *Ask AI* puts the selection (or the current line, or `# %%` cell) in the chat with the name
-  of the file, ready for a question.
+  of the file, ready for a question. A code block of the answer then has a *Review in
+  <file>* button: a **diff view** compares the file with the file where the code you asked
+  about is replaced by the proposal. The proposal (right) can still be edited; *Accept*
+  applies it to the editor (one change, undone by Ctrl+Z; save it to keep it), *Reject* or
+  closing the tab leaves the file as it is.
+- A script generated by `/ai_script` (terminal or chat) opens in the same diff view before
+  anything is written: *Accept* writes it in `scripts/` and opens it in the editor, *Reject*
+  writes nothing (the terminal waits for your choice; Ctrl+C gives up).
 
 ## AI chat
 
@@ -274,6 +313,8 @@ The chat on the right drives the assistant described in [AI assistant](ai.qmd):
 - the answer appears as it is generated; the reasoning of the model, when it gives one
   (Qwen3, Claude), is in a folded *Reasoning* block; the header shows the tokens of the last
   request against the context size (`10.2k / 16.4k tokens`);
+- formulas written in LaTeX are drawn: `$…$` or `\(…\)` in the text, `$$…$$` or `\[…\]` on
+  their own line (MathML, drawn by the browser; code is left as it is);
 - `@` attaches objects to a question: type `@` for a list of the signals, results and files of
   the project (`@S1`, `@R3`, `@context.md`). Signals and results are sent as summaries, never
   as samples; text files with their text (20 000 characters at most);
@@ -283,7 +324,9 @@ The chat on the right drives the assistant described in [AI assistant](ai.qmd):
 - the conversations are saved in `.onthesignal/chats/` of the project: the history button
   reopens one (the assistant goes on with it) or exports it in Markdown;
 - *Allow for this chat* on a confirmation allows that kind of action (running a script…) until
-  the next *New chat*; the ↻ button asks the last question again for a new answer;
+  the next *New chat*; the ↻ button asks the last question again for a new answer, and the
+  edit button puts the last question back in the input field: *Send* replaces it, with its
+  answer, by the edited question;
 - the first request to an online profile (Claude, ChatGPT) asks whether the summaries may be
   sent to it; the answer holds until the server stops. Ollama and servers of the local
   network are not asked, as the data stay on your network;

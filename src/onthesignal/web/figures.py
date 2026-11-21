@@ -18,7 +18,7 @@ from obspy import UTCDateTime
 from ..core.result import Result
 from ..core.signal import Signal
 from ..core.units import COUNTS, pretty_unit
-from ..plot.layouts import comparison_curve
+from ..plot.layouts import comparison_curve, result_curve
 from ..plot.spec import Axis, Band, FigureSpec, HLine, Panel, ResultsSpec, Series
 from ..plot.style import (
     AXIS,
@@ -89,8 +89,26 @@ def _transform_x(x: np.ndarray, y: np.ndarray, axis: Axis) -> tuple[np.ndarray, 
 def _curve(source: Result | Sequence[Result], key: str) -> Any:
     """Curve of a result, or ``"<index>/<curve>"`` of a comparison of results."""
     if isinstance(source, Result):
-        return source.curves[key]
+        return result_curve(source, key)
     return comparison_curve(source, key)
+
+
+def _window(x: np.ndarray, y: np.ndarray, window: tuple[float, float], margin: float,
+            log: bool) -> tuple[np.ndarray, np.ndarray]:
+    """Points of an increasing curve in ``window``, widened by ``margin`` (fraction of its
+    width, in log10 on a logarithmic axis) on each side, with one more point at each end so
+    that the line reaches the edges."""
+    lo, hi = window
+    if lo is None or hi is None or not hi > lo:
+        return x, y
+    if log and lo > 0:
+        a, b = math.log10(lo), math.log10(hi)
+        lo, hi = 10 ** (a - margin * (b - a)), 10 ** (b + margin * (b - a))
+    else:
+        lo, hi = lo - margin * (hi - lo), hi + margin * (hi - lo)
+    i0 = max(int(np.searchsorted(x, lo, side="left")) - 1, 0)
+    i1 = min(int(np.searchsorted(x, hi, side="right")) + 1, x.size)
+    return x[i0:i1], y[i0:i1]
 
 
 def _regrid(values: np.ndarray, centers: np.ndarray, edges: np.ndarray, log: bool
@@ -169,9 +187,15 @@ def heatmap_payload(result: Result, panel: Panel) -> dict[str, Any]:
             "values": base64.b64encode(q.tobytes()).decode("ascii")}
 
 
-def panel_data(result: Result | Sequence[Result], panel: Panel, bins: int = DEFAULT_BINS
+def panel_data(result: Result | Sequence[Result], panel: Panel, bins: int = DEFAULT_BINS,
+               window: tuple[float, float] | None = None, margin: float = 0.0
                ) -> dict[str, Any]:
-    """Aligned, decimated data of one panel of a result figure (or of a comparison)."""
+    """Aligned, decimated data of one panel of a result figure (or of a comparison).
+
+    ``window``: abscissa range shown after a zoom; its points are sent at full resolution
+    (up to ``bins``), with ``margin`` window widths on each side for moving without waiting.
+    A heatmap panel is always sent whole.
+    """
     if panel.heatmap is not None:
         source = result if isinstance(result, Result) else result[0]
         heat = heatmap_payload(source, panel)
@@ -181,10 +205,15 @@ def panel_data(result: Result | Sequence[Result], panel: Panel, bins: int = DEFA
         data["heatmap"] = heat
         return data
     curves = []
+    log = panel.x.scale == "log"
     for s in panel.series:
         c = _curve(result, s.curve)
         x, y = _transform_x(c.x, c.y, panel.x)
-        curves.append(decimate_xy(x, y, bins, panel.x.scale))
+        n_bins = bins
+        if window is not None:
+            x, y = _window(x, y, window, margin, log)
+            n_bins = int(math.ceil(bins * (1.0 + 2.0 * margin)))
+        curves.append(decimate_xy(x, y, n_bins, panel.x.scale))
     return align(curves)
 
 

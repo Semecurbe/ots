@@ -72,15 +72,21 @@ def language_of(path: str | Path) -> str:
 
 
 class MonacoEditor(ui.element, component="monaco_editor.js"):
-    """Monaco editor; events ``ready``, ``dirty``, ``save``, ``run``, ``run_selection``."""
+    """Monaco editor; events ``ready``, ``dirty``, ``save``, ``run``, ``run_selection``.
+
+    With ``original``, a diff view: ``original`` on the left (read-only), ``value`` on the
+    right (editable); the ``diff`` event gives the number of changed blocks.
+    """
 
     def __init__(self, value: str = "", language: str = "plaintext",
-                 read_only: bool = False) -> None:
+                 read_only: bool = False, original: str | None = None) -> None:
         super().__init__()
         self._props["value"] = value
         self._props["language"] = language
         self._props["readOnly"] = read_only
         self._props["baseUrl"] = f"{VENDOR_URL}/monaco"
+        if original is not None:
+            self._props["original"] = original
 
     async def get_value(self) -> Any:
         return await self.run_method("getValue", timeout=5)
@@ -90,6 +96,10 @@ class MonacoEditor(ui.element, component="monaco_editor.js"):
 
     def mark_saved(self) -> None:
         self.run_method("markSaved")
+
+    def apply_text(self, text: str) -> None:
+        """Replace the text as one edit that Ctrl+Z undoes (not saved)."""
+        self.run_method("applyText", text)
 
     def set_markers(self, markers: list[dict], owner: str = "onthesignal") -> None:
         """Underline problems; each ``owner`` (syntax check, ruff) has its own set."""

@@ -13,6 +13,12 @@ load("data/acq.mseed", gaps="fill")
 
 `/load data/acq.mseed unit=V sensitivity=2.384e-6` does the same in the console.
 
+A miniSEED file is recognized by its content, whatever its name: the day files of an SDS
+archive, named `NET.STA.LOC.CHA.TYPE.YEAR.DAY` (`XX.LORA.HA.BHE.D.2026.264`, day 264 of 2026)
+have no `.mseed` extension and load as well. A day at 250 Hz is 21.6 million samples (about
+170 MB in memory): it loads in about a second, and its long-period PSD (`lnm`) in about as
+much.
+
 **Gaps are never filled silently.** The `gaps` option chooses the policy:
 
 | `gaps` | Behaviour |
@@ -28,7 +34,8 @@ every result.
 ## Signal title
 
 Every loaded signal gets a **title**: by default the file name without its extension
-(`data/acquisition_FHZ.mseed` → `acquisition_FHZ`). All the channels of a file share it; the
+(`data/acquisition_FHZ.mseed` → `acquisition_FHZ`), or the whole name of a day file of an
+SDS archive, whose last part is the day of the year (`XX.LORA.HA.BHE.D.2026.264`). All the channels of a file share it; the
 NSLC code tells them apart. The title appears in:
 
 - the title of every result and figure: `Noise — S1 · acquisition_FHZ (RD.SN270.00.FHZ) · …`;

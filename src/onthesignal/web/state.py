@@ -247,6 +247,7 @@ class WebState:
         self._initial_ns = dict(self.terminal.console.ns)
         self.terminal.on_executed.append(self.refresh_variables)
         self.terminal.console.param_form = self.request_form
+        self.terminal.console.review_handler = self.request_review
         self.terminal.console.ai_handler = self.ask_ai_from_terminal
         self.terminal.console.edit_handler = self.open_in_editor
         self.terminal.console.quit_handler = lambda: self.terminal.write(
@@ -393,6 +394,15 @@ class WebState:
         self.terminal.write(f"Form of /{cmd.name} opened in the browser…\n")
         return self.requests.ask({"type": "form", "command": cmd.name,
                                   "signals": [s.name for s in signals], "defaults": defaults})
+
+    def request_review(self, path: Path, original: str, proposed: str) -> str | None:
+        """Diff view of a file proposed by the AI (``/ai_script``, §9.6): the accepted text,
+        or ``None`` when the user refuses it."""
+        self.terminal.write(f"Proposal for {Path(path).name} opened in the browser: accept or "
+                            "reject it there…\n")
+        answer = self.requests.ask({"type": "review", "path": str(path), "original": original,
+                                    "proposed": proposed})
+        return None if answer is None else str(answer)
 
     # ------------------------------------------------------------------ signals
     def color_of(self, name: str) -> str:

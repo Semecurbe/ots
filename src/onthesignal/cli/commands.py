@@ -535,6 +535,10 @@ def cmd_ai_script(console: OnTheSignalConsole, pos: list[str], *_: Any) -> None:
     if console.assistant is None:
         console.assistant = get_assistant(console)
     path = console.assistant.generate_script(pos[0], " ".join(pos[1:]))
+    if console.review_handler is not None and console.edit_handler is not None:
+        console.display.info(f"Script written to {path}")
+        console.edit_handler(path)  # accepted in the diff view: opened in the editor
+        return
     console.display.info(f"Script written to {path} — review it with /edit_script {pos[0]} "
                          "before running it")
 

@@ -89,6 +89,10 @@ class OnTheSignalConsole:
         the terminal editor (editor of the web interface).
     quit_handler : callable, optional
         Replaces ``/quit`` (the web terminal cannot quit the server).
+    review_handler : callable, optional
+        ``review_handler(path, original, proposed) -> str | None`` shows a file proposed by
+        the AI (``/ai_script``) before it is written: the accepted text, ``None`` when refused
+        (diff view of the web interface).
     """
 
     def __init__(self, files: Sequence[str] = (), config: Config | None = None,
@@ -107,6 +111,7 @@ class OnTheSignalConsole:
         self.ai_handler: Callable[[str], None] | None = None
         self.edit_handler: Callable[[Path], None] | None = None
         self.quit_handler: Callable[[], None] | None = None
+        self.review_handler: Callable[[Path, str, str], str | None] | None = None
         self.debug = False
         self.running = True
         self.mode = "python"

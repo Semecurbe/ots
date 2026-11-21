@@ -63,14 +63,38 @@ def _study_band(result: Any, x_min: float | None = None) -> list[Band]:
     if not band:
         return []
     low = max(float(band[0]), x_min) if x_min is not None else float(band[0])
-    return [Band(low, float(band[1]), "study band")]
+    return [Band(low, float(band[1]), "study band", ref="band")]
 
 
 def _mains(result: Any, verb: str = "removed") -> list[Marker]:
     lines = result.extra.get("mains_lines") or []
     mains = result.params.get("mains_freq", 50.0)
     return [Marker(float(f), label=f"{mains:g} Hz and harmonics ({verb})" if i == 0 else "",
-                   kind="removed_mains") for i, f in enumerate(lines)]
+                   kind="removed_mains", ref="mains") for i, f in enumerate(lines)]
+
+
+def result_curve(result: Any, key: str) -> Any:
+    """Curve ``key`` of a result: one of ``Result.curves``, or a trace of ``Result.extra``.
+
+    A trace is a curve sampled at a constant step and kept out of the serialized result
+    (the band-limited noise of ``noise``): ``{"y", "dt", "label", "unit"}``.
+    """
+    curve = result.curves.get(key)
+    if curve is not None:
+        return curve
+    trace = result.extra.get(key)
+    if not isinstance(trace, dict) or "y" not in trace or "dt" not in trace:
+        raise KeyError(key)
+    from ..core.result import Curve
+
+    y = np.asarray(trace["y"])
+    return Curve(float(trace.get("t0", 0.0)) + np.arange(y.size) * float(trace["dt"]), y,
+                 label=str(trace.get("label", key)), x_label="Time", x_unit="s",
+                 y_label=str(trace.get("label", "")), y_unit=str(trace.get("unit", "")))
+
+
+#: Rows of the study band linked to the shaded band and to the removed mains lines.
+BAND_LINKS = {"band": "band", "enbw": "band", "mains_removed": "mains"}
 
 
 def _first_positive(x: np.ndarray) -> float:
@@ -87,9 +111,34 @@ NOISE_GROUPS: list[tuple[str, list[str]]] = [
 ]
 
 
+NOISE_LINKS = {**BAND_LINKS, "rms": "rms", "pp": "pp"}
+
+
 @layout("noise")
 def noise_layout(result: Any) -> FigureSpec:
-    return FigureSpec(result.title, results=ResultsSpec(NOISE_HEADLINE, NOISE_GROUPS))
+    """Band-limited noise with its ±RMS levels and its extremes, above the results (§7.4)."""
+    from ..core.units import COUNTS, pretty_unit
+
+    panels = []
+    trace = result.extra.get("trace")
+    if trace is not None and len(trace.get("y", ())):
+        unit = str(trace.get("unit", COUNTS))
+        physical = unit != COUNTS
+        rms = result.values.get("rms_phys" if physical else "rms")
+        hlines = [] if rms is None else [
+            HLine(sign * float(rms.value), "± RMS" if sign > 0 else "", "ink2", [6, 4],
+                  ref="rms") for sign in (1, -1)]
+        y = np.asarray(trace["y"])
+        dt = float(trace["dt"])
+        markers = [Marker(float(i) * dt, float(y[i]), label, "extreme", ref="pp")
+                   for label, i in (("maximum", int(np.argmax(y))),
+                                    ("minimum", int(np.argmin(y))))]
+        panels.append(Panel("trace", Axis("Time", "s", time_origin=str(trace.get("origin", ""))),
+                            Axis("Noise", unit if not physical else pretty_unit(unit)),
+                            [Series("trace", str(trace.get("label", "noise")), width=0.8)],
+                            hlines=hlines, markers=markers, legend=False))
+    return FigureSpec(result.title, panels,
+                      results=ResultsSpec(NOISE_HEADLINE, NOISE_GROUPS, links=NOISE_LINKS))
 
 
 def _spectral_panel(result: Any, key: str, label: str) -> Panel:
@@ -103,7 +152,8 @@ def _spectral_panel(result: Any, key: str, label: str) -> Panel:
 def noise_fft_layout(result: Any) -> FigureSpec:
     return FigureSpec(result.title, [_spectral_panel(result, "spectrum", "spectrum")],
                       results=ResultsSpec(NOISE_HEADLINE,
-                                          [*NOISE_GROUPS, ("Spectrum", ["window", "df"])]))
+                                          [*NOISE_GROUPS, ("Spectrum", ["window", "df"])],
+                                          links=BAND_LINKS))
 
 
 @layout("noise_dsp")
@@ -119,7 +169,8 @@ def noise_dsp_layout(result: Any) -> FigureSpec:
                          "full_scale"]),
               *NOISE_GROUPS[1:], ("Welch", ["nperseg", "n_averages", "df"])]
     return FigureSpec(result.title, panels,
-                      results=ResultsSpec(["rms", "rms_psd", "dr", "enob"], groups))
+                      results=ResultsSpec(["rms", "rms_psd", "dr", "enob"], groups,
+                                          links=BAND_LINKS))
 
 
 @layout("lnm")
@@ -144,16 +195,22 @@ def lnm_layout(result: Any) -> FigureSpec:
         series.append(Series("nhnm", "NHNM", role="model", color="muted", width=1.2,
                              dash=[6, 4]))
     top = Panel("psd", x, Axis("PSD", psd.y_unit), series, height=2.0, sync="f")
+    where = "period_max" if period else "freq_max"
+    markers = []
+    if where in result.values and "diff_max" in result.values:
+        markers.append(Marker(float(result.values[where].value),
+                              float(result.values["diff_max"].value), "maximum PSD − NLNM",
+                              "maximum", ref="diff_max"))
     bottom = Panel("diff", Axis(x.label, x.unit, "log", x.min, x.max, reciprocal=period),
                    Axis("PSD − NLNM", "dB"),
                    [Series("diff", "PSD − NLNM", fill_negative=True, fill_label="below NLNM")],
-                   hlines=[HLine(0.0)], sync="f")
-    where = "period_max" if period else "freq_max"
+                   hlines=[HLine(0.0)], markers=markers, sync="f")
     return FigureSpec(result.title, [top, bottom], results=ResultsSpec(
         ["diff_max", where, "below_nlnm"],
         [("PSD − NLNM", ["quantity", "diff_min", "diff_max", "diff_mean", "freq_max",
                          "period_max", "below_nlnm", "range"]),
-         ("Welch", ["nperseg", "n_averages"])]))
+         ("Welch", ["nperseg", "n_averages"])],
+        links={"diff_max": "diff_max", "freq_max": "diff_max", "period_max": "diff_max"}))
 
 
 # ---------------------------------------------------------------------------------- sine
@@ -192,10 +249,11 @@ def _fundamental_and_spur(result: Any) -> list[Marker]:
     out = []
     if "fundamental" in result.extra:
         f0, level = result.extra["fundamental"]
-        out.append(Marker(float(f0), float(level), "fundamental", "fundamental"))
+        out.append(Marker(float(f0), float(level), "fundamental", "fundamental",
+                          ref="fundamental"))
     if "spur" in result.extra:
         fs_, level = result.extra["spur"]
-        out.append(Marker(float(fs_), float(level), "largest spur", "spur"))
+        out.append(Marker(float(fs_), float(level), "largest spur", "spur", ref="spur"))
     return out
 
 
@@ -210,8 +268,9 @@ def _harmonic_markers(result: Any) -> list[Marker]:
     out = []
     for fk, dbc in harmonics:
         level = level0 + float(dbc)
-        out.append(Marker(float(fk), level, f"H{round(float(fk) / f0)}" if level > floor + 20
-                          else "", "harmonic"))
+        order = round(float(fk) / f0)
+        out.append(Marker(float(fk), level, f"H{order}" if level > floor + 20 else "",
+                          "harmonic", ref=f"H{order}"))
     return out
 
 
@@ -219,24 +278,32 @@ def _fundamental_point(result: Any) -> list[Marker]:
     if "frequency" not in result.values or "amplitude_dbfs" not in result.values:
         return []
     return [Marker(float(result.values["frequency"].value),
-                   float(result.values["amplitude_dbfs"].value), "fundamental", "fundamental")]
+                   float(result.values["amplitude_dbfs"].value), "fundamental", "fundamental",
+                   ref="fundamental")]
 
+
+#: Fit rows linked to the fundamental, spur rows to the largest spur (hover highlight).
+FIT_LINKS = {"frequency": "fundamental", "amplitude": "fundamental",
+             "amplitude_dbfs": "fundamental"}
+SPUR_LINKS = {k: "spur" for k in ("spur_frequency", "spur_amplitude", "spur_nature",
+                                  "spur_emergence", "noise_limited", "sfdr_dbc", "sfdr_dbfs")}
+HARMONIC_ROWS = {"harmonics": "H{order}"}
 
 SINAD_RESULTS = ResultsSpec(["sinad", "enob", "enob_fs"], [
     ("Fit", FIT),
     ("Noise and distortion", ["sigma_r", "sinad", "enob", "enob_fs", "thd_n"]),
     ("Study band", ["band", "enbw", "mains_removed"]),
-])
+], links=BAND_LINKS)
 SFDR_RESULTS = ResultsSpec(["sfdr_dbc", "sfdr_dbfs", "spur_frequency", "spur_nature"], [
     ("Fit", FIT),
     ("Largest spur", ["spur_frequency", "spur_amplitude", "spur_nature", "spur_emergence",
                       "noise_limited"]),
     ("SFDR", ["sfdr_dbc", "sfdr_dbfs"]),
-])
+], links={**FIT_LINKS, **SPUR_LINKS, **BAND_LINKS})
 THD_RESULTS = ResultsSpec(["thd_db", "thd_pct"], [
     ("Fit", FIT),
     ("Distortion", ["thd_db", "thd_pct", "n_harmonics_used"]),
-], ["harmonics"])
+], ["harmonics"], links=FIT_LINKS, row_refs=HARMONIC_ROWS)
 
 
 @layout("sinefit")
@@ -279,7 +346,7 @@ def dynamic_layout(result: Any) -> list[tuple[str, FigureSpec]]:
                    "noise_limited"]),
         ("Consistency", ["sinad_check"]),
         ("Study band", ["band", "enbw", "mains_removed"]),
-    ], ["harmonics"])
+    ], ["harmonics"], links=BAND_LINKS, row_refs=HARMONIC_ROWS)
     sfdr = _spectrum_panel(result, "spectrum", "sfdr")
     sfdr.markers += _fundamental_and_spur(result)
     thd = _spectrum_panel(result, "spectrum", "thd")
@@ -296,35 +363,49 @@ def dynamic_layout(result: Any) -> list[tuple[str, FigureSpec]]:
 
 
 # ---------------------------------------------------------------------------------- measures
+def _per_period_panel(result: Any, curve: str, key: str, label: str) -> list[Panel]:
+    """Value of each period with the mean as a level (``frequency``, ``period``, §7.4)."""
+    c = result.curves.get(curve)
+    if c is None:
+        return []
+    hlines = [HLine(float(result.values[key].value), label, "ink2", [6, 4], ref=key)] \
+        if key in result.values else []
+    return [Panel(curve, _axis(c, "x"), _axis(c, "y"),
+                  [Series(curve, c.label or curve, width=0.8)], hlines=hlines, legend=False)]
+
+
 @layout("frequency")
 def frequency_layout(result: Any) -> FigureSpec:
     method = result.extra.get("method")
-    return FigureSpec(result.title, note=f"Method: {method}" if method else "",
+    return FigureSpec(result.title, _per_period_panel(result, "frequencies", "frequency",
+                                                      "mean frequency"),
+                      note=f"Method: {method}" if method else "",
                       results=ResultsSpec(["frequency"], [
-                          ("Frequency", ["frequency", "frequency_std", "n_periods"])]))
+                          ("Frequency", ["frequency", "frequency_std", "n_periods"])],
+                          ["periods"], links={"frequency": "frequency"}))
 
 
 @layout("period")
 def period_layout(result: Any) -> FigureSpec:
-    c = result.curves.get("periods")
-    panels = [] if c is None else [Panel("periods", _axis(c, "x"), _axis(c, "y"),
-                                         [Series("periods", "period", width=0.8)])]
-    return FigureSpec(result.title, panels, results=ResultsSpec(["period"], [
-        ("Period", ["period", "period_std", "period_min", "period_max", "n_periods"])]))
+    return FigureSpec(result.title, _per_period_panel(result, "periods", "period", "mean period"),
+                      results=ResultsSpec(["period"], [
+                          ("Period", ["period", "period_std", "period_min", "period_max",
+                                      "n_periods"])], ["periods"], links={"period": "period"}))
 
 
 @layout("delay50")
 def delay50_layout(result: Any) -> FigureSpec:
     c = result.curves["s1"]
     level = float(result.extra.get("level", 0.5))
-    markers = [Marker(float(t), level, "", "event", f"series:{i}")
+    markers = [Marker(float(t), level, "", "event", f"series:{i}", ref="delay")
                for i, t in enumerate(result.extra.get("markers", []))]
     panel = Panel("edges", _axis(c, "x"), Axis("Normalized amplitude"),
                   [Series("s1", result.curves["s1"].label),
                    Series("s2", result.curves["s2"].label, color="series:1")],
                   markers=markers, hlines=[HLine(level, f"{level:g} level")])
     return FigureSpec(result.title, [panel], results=ResultsSpec(["delay"], [
-        ("Delay", ["delay", "delay_std", "delay_min", "delay_max", "n_edges"])], ["edges"]))
+        ("Delay", ["delay", "delay_std", "delay_min", "delay_max", "n_edges"])], ["edges"],
+        links={"delay": "delay"}))
 
 
 @layout("coherence")
@@ -415,7 +496,8 @@ def generic(result: Any) -> FigureSpec:
 
 # ---------------------------------------------------------------------------------- comparison
 #: Panels overlaid when results are compared (default: every panel of the main figure).
-COMPARE_PANELS = {"sinad": ["residual_spectrum"], "dynamic": ["residual_spectrum"]}
+COMPARE_PANELS: dict[str, list[str]] = {"sinad": ["residual_spectrum"],
+                                         "dynamic": ["residual_spectrum"], "noise": []}
 #: Results whose figures cannot be overlaid.
 NOT_COMPARABLE = {"spectrogram": "spectrograms cannot be overlaid: open them side by side"}
 
@@ -428,7 +510,7 @@ def _source(results: Sequence[Any], key: str) -> tuple[Any, str]:
 
 def comparison_curve(results: Sequence[Any], key: str) -> Any:
     result, curve = _source(results, key)
-    return result.curves[curve]
+    return result_curve(result, curve)
 
 
 def result_label(result: Any) -> str:
@@ -560,12 +642,42 @@ def _cell(value: Any) -> str:
     return str(value)
 
 
+def _raw(value: Any) -> Any:
+    """Cell value for sorting: numbers stay numbers (``None`` when not finite)."""
+    if isinstance(value, (bool, np.bool_)):
+        return "yes" if value else "no"
+    if isinstance(value, (int, np.integer)):
+        return int(value)
+    if isinstance(value, (float, np.floating)):
+        return float(value) if np.isfinite(value) else None
+    return str(value)
+
+
+def _row_ref(pattern: str, row: dict) -> str:
+    try:
+        return pattern.format(**row) if pattern else ""
+    except (KeyError, IndexError, ValueError):
+        return ""
+
+
+def figure_refs(spec: FigureSpec) -> set[str]:
+    """References of the elements of a figure that rows of its results can highlight."""
+    refs: set[str] = set()
+    for p in spec.panels:
+        refs.update(m.ref for m in p.markers if m.ref)
+        refs.update(b.ref for b in p.bands if b.ref)
+        refs.update(h.ref for h in p.hlines if h.ref)
+    return refs
+
+
 def results_view(result: Any, spec: ResultsSpec | None = None) -> dict[str, Any]:
     """Content of the results panel shown under a figure (web specification §7.5).
 
     Returns ``headline`` (key figures), ``groups`` (detail rows ``label, value, physical``),
     ``tables`` and ``warnings``. Every value of the result appears once in the groups; the
-    values that the layout does not place go to a last ``Other`` group.
+    values that the layout does not place go to a last ``Other`` group. Rows carry the
+    ``ref`` of the figure element they describe (``ResultsSpec.links``); tables give their
+    cells as text (``rows``), as values for sorting (``values``) and the ``refs`` of the rows.
     """
     spec = spec or figure_spec(result).results
 
@@ -573,7 +685,8 @@ def results_view(result: Any, spec: ResultsSpec | None = None) -> dict[str, Any]
         v = result.values[key]
         phys = result.values.get(key + "_phys")
         return {"key": key, "label": v.label, "value": v.text(),
-                "physical": phys.text() if phys is not None else ""}
+                "physical": phys.text() if phys is not None else "",
+                "ref": spec.links.get(key, "")}
 
     present = [k for k in result.values if not (k.endswith("_phys") and k[:-5] in result.values)]
     used: set[str] = set()
@@ -593,11 +706,15 @@ def results_view(result: Any, spec: ResultsSpec | None = None) -> dict[str, Any]
         rows = result.tables.get(name) or []
         if rows:
             columns = list(rows[0].keys())
-            tables.append({"name": name.replace("_", " "), "columns": columns,
-                           "rows": [[_cell(r.get(c, "")) for c in columns] for r in rows]})
+            pattern = spec.row_refs.get(name, "")
+            tables.append({"name": name.replace("_", " "), "key": name, "columns": columns,
+                           "rows": [[_cell(r.get(c, "")) for c in columns] for r in rows],
+                           "values": [[_raw(r.get(c, "")) for c in columns] for r in rows],
+                           "refs": [_row_ref(pattern, r) for r in rows]})
     return {"headline": headline, "groups": groups, "tables": tables,
             "warnings": list(result.warnings)}
 
 
-__all__ = ["comparison_curve", "comparison_spec", "comparison_view", "figure_spec",
-           "figure_specs", "generic", "has_layout", "layout", "result_label", "results_view"]
+__all__ = ["comparison_curve", "comparison_spec", "comparison_view", "figure_refs",
+           "figure_spec", "figure_specs", "generic", "has_layout", "layout", "result_curve",
+           "result_label", "results_view"]

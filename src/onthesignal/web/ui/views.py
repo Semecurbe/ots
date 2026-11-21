@@ -13,6 +13,7 @@ from nicegui import ui
 
 from ...core.errors import ParameterError
 from ...core.registry import commands
+from ...io import SDS_NAME, is_signal_file
 from ..security import confine, safe_name
 from .dialogs import ask_text, confirm, load_file_dialog
 
@@ -20,6 +21,12 @@ if TYPE_CHECKING:
     from .workbench import Workbench
 
 DATA_SUFFIXES = {".mseed", ".msd", ".miniseed", ".seed", ".txt", ".csv", ".dat", ".asc", ".sac"}
+
+
+def is_data_file(path: Path) -> bool:
+    """Can be loaded as a signal: signal files (miniSEED by its content too, as the day files
+    of an SDS archive) and text data files."""
+    return path.suffix.lower() in DATA_SUFFIXES or is_signal_file(path)
 TEXT_SUFFIXES = {".py", ".md", ".qmd", ".toml", ".txt", ".csv", ".json", ".yml", ".yaml",
                  ".cfg", ".ini", ".sh", ".j2", ".log", ".dat", ".asc", ".xml", ".sql", ""}
 CATEGORIES = {"noise": "Noise", "sine": "Sine", "measure": "Measurements",
@@ -107,8 +114,8 @@ class FilesView:
 
     def _entry(self, path: Path) -> None:
         is_dir = path.is_dir()
-        icon = "folder" if is_dir else ("graphic_eq" if path.suffix.lower() in DATA_SUFFIXES
-                                         else "description")
+        data = not is_dir and is_data_file(path)
+        icon = "folder" if is_dir else ("graphic_eq" if data else "description")
         size = "" if is_dir else _size(path.stat().st_size)
         with ui.item(on_click=lambda p=path: self.open(p)).props("dense clickable") \
                 .classes("w-full q-px-sm"):
@@ -120,15 +127,16 @@ class FilesView:
                 ui.item_label(size).props("caption")
             with ui.context_menu():
                 if not is_dir:
-                    ui.menu_item("Open in the editor", lambda p=path: self.wb.open_file(p))
-                    if path.suffix.lower() in DATA_SUFFIXES:
+                    if not is_signal_file(path):  # binary signal files are not edited
+                        ui.menu_item("Open in the editor", lambda p=path: self.wb.open_file(p))
+                    if data:
                         ui.menu_item("Load as signal", lambda p=path: self.load(p))
                         ui.menu_item("Load with options…", lambda p=path: self.load(p, True))
                     ui.menu_item("Download", lambda p=path: ui.download.file(p))
                 else:
                     ui.menu_item("Download as zip", lambda p=path: self.download_dir(p))
                     ui.menu_item("Batch on this folder…", lambda p=path: self.wb.new_batch(
-                        f"{self._relative(p)}/*.mseed"))
+                        self._batch_pattern(p)))
                 ui.menu_item("Rename…", lambda p=path: self.rename(p))
                 ui.menu_item("Copy path", lambda p=path: ui.clipboard.write(str(p)))
                 ui.menu_item("Delete…", lambda p=path: self.delete(p))
@@ -138,11 +146,25 @@ class FilesView:
             self.cwd = path
             self.refresh()
             return
-        suffix = path.suffix.lower()
-        if suffix in {".mseed", ".msd", ".miniseed", ".seed", ".sac"}:
+        if is_signal_file(path):  # miniSEED by its extension or its content, SAC
             await self.load(path)
         else:
             self.wb.open_file(path)
+
+    def _batch_pattern(self, folder: Path) -> str:
+        """Files of a folder for a batch: its miniSEED files, the day files of an SDS
+        archive, or every file."""
+        relative = self._relative(folder)
+        try:
+            names = [p.name for p in folder.iterdir() if p.is_file()]
+        except OSError:
+            names = []
+        for suffix in (".mseed", ".msd", ".miniseed", ".seed"):
+            if any(n.lower().endswith(suffix) for n in names):
+                return f"{relative}/*{suffix}"
+        if any(SDS_NAME.match(n) for n in names):
+            return f"{relative}/*.D.*"
+        return f"{relative}/*"
 
     async def load(self, path: Path, options: bool = False) -> None:
         await load_file_dialog(self.wb, path, options)
@@ -227,7 +249,7 @@ class FilesView:
         ui.notify(f"Uploaded to {target.relative_to(self.wb.root)}")
         self.cwd = upload_dir
         self.refresh()
-        if target.suffix.lower() in DATA_SUFFIXES:
+        if is_data_file(target):
             await self.load(target)
 
 
@@ -808,6 +830,7 @@ SHORTCUTS = [("/ or Ctrl+K", "command palette"), ("Ctrl+P", "open a file or an o
              ("F5", "run the open script"), ("Shift+Enter", "run the selection in the terminal"),
              ("Ctrl+`", "show or hide the Python terminal"),
              ("Ctrl+Shift+I", "show or hide the chat"),
+             ("Ctrl+\\", "split the work area in two sides (right-click a tab to move it)"),
              ("Drag", "zoom on a rectangle (Zoom mode) or move (Move mode) on a chart"),
              ("Middle drag, Shift+wheel", "move along the abscissa of a chart"),
              ("Ctrl+wheel", "zoom a chart around the cursor"),

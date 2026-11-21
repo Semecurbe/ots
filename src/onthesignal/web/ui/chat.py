@@ -1,10 +1,11 @@
 """AI chat panel (web specification §11): conversation, tool cards, confirmations.
 
-The answer appears as it is generated (with the reasoning of the model in a folded block),
-the tokens used are shown against the context size, profiles of ``[[ai.profiles]]`` are
-chosen in the header, ``@S1``, ``@R2`` or ``@context.md`` attach summaries of objects or the
-text of a file, and the conversations are saved in ``.onthesignal/chats/`` to be reopened or
-exported in Markdown.
+The answer appears as it is generated (with the reasoning of the model in a folded block)
+and its LaTeX formulas are drawn; the tokens used are shown against the context size,
+profiles of ``[[ai.profiles]]`` are chosen in the header, ``@S1``, ``@R2`` or ``@context.md``
+attach summaries of objects or the text of a file, the last question can be edited or asked
+again, code proposed about a file of the editor is reviewed in a diff view, and the
+conversations are saved in ``.onthesignal/chats/`` to be reopened or exported in Markdown.
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ from nicegui import ui
 
 from ...ai.assistant import extract_code
 from ...core.errors import ParameterError
+from ..mathtext import ChatMarkdown
 
 if TYPE_CHECKING:
     from .workbench import Workbench
@@ -137,6 +139,11 @@ class ChatPanel:
         self.tool_started: dict[str, float] = {}
         self.stream: dict[str, Any] | None = None
         self.record = self._new_record()
+        #: File and code of the last "Ask AI" of the editor: code of the answers can be
+        #: reviewed against this file (§9.6).
+        self.code_target: dict[str, Any] | None = None
+        #: The last question is being edited: sending replaces it (§11.2).
+        self.editing = False
 
     # ------------------------------------------------------------------ layout
     def build(self) -> None:
@@ -175,6 +182,14 @@ class ChatPanel:
             with self.scroll:
                 self.log = ui.column().classes("w-full gap-2 q-pa-xs")
             self.status = ui.label("").classes("text-caption text-grey-7")
+            with ui.row().classes("w-full items-center no-wrap gap-1 q-px-xs bg-blue-1 "
+                                  "rounded-borders") as self.edit_banner:
+                ui.icon("edit", size="16px", color="primary")
+                ui.label("Editing the last question: Send replaces it and its answer") \
+                    .classes("text-caption grow")
+                ui.button(icon="close", on_click=self.cancel_edit) \
+                    .props("flat dense round size=xs").tooltip("Cancel the edit")
+            self.edit_banner.set_visibility(False)
             self.suggestions = ui.row().classes("w-full gap-1")
             self.input = ui.textarea(placeholder="Ask the assistant… (@ attaches a signal, a "
                                      "result or a file; / for commands; Enter to send, "
@@ -187,6 +202,8 @@ class ChatPanel:
                 self.stop_button = ui.button("Stop", icon="stop", on_click=self.stop) \
                     .props("flat dense no-caps")
                 self.stop_button.set_visibility(False)
+                ui.button(icon="edit_note", on_click=self.edit_last) \
+                    .props("flat dense round size=sm").tooltip("Edit the last question")
                 ui.button(icon="replay", on_click=self.regenerate) \
                     .props("flat dense round size=sm").tooltip("Regenerate the last answer")
                 ui.button("Send", icon="send", on_click=self.send).props("unelevated dense no-caps")
@@ -243,6 +260,44 @@ class ChatPanel:
                 ui.button("Run in terminal", icon="play_arrow",
                           on_click=lambda c=code: self.run_code(c)) \
                     .props("flat dense no-caps size=sm")
+            target = self.code_target
+            if target is not None:
+                ui.button(f"Review in {target['path'].name}", icon="difference",
+                          on_click=lambda c=code, t=target: self.review_in_editor(c, t)) \
+                    .props("flat dense no-caps size=sm") \
+                    .tooltip("Compare with the code you asked about, then accept or reject")
+
+    async def review_in_editor(self, code: str, target: dict[str, Any]) -> None:
+        """Diff view of the file asked about, its selection replaced by the proposed code."""
+        from .tabs import EditorTab
+
+        path: Path = target["path"]
+        key = f"file:{path}"
+        tab = self.wb.work.content(key)
+        if isinstance(tab, EditorTab):
+            current = await tab.editor.get_value()
+        else:
+            current = path.read_text(encoding="utf-8", errors="replace") if path.exists() \
+                else None
+        selection = str(target.get("selection") or "")
+        if current is None or not selection.strip() or selection not in str(current):
+            ui.notify(f"The code you asked about is no longer in {path.name}: copy the "
+                      "proposal instead", type="warning")
+            return
+        current = str(current)
+        replacement = code.rstrip("\n") + ("\n" if selection.endswith("\n") else "")
+        proposed = current.replace(selection, replacement, 1)
+
+        def accept(text: str) -> None:
+            editor = self.wb.work.content(key)
+            if isinstance(editor, EditorTab):
+                editor.apply_text(text)
+                self.wb.work.open(key, path.name, lambda: editor)  # show it
+            else:  # closed meanwhile: opened again with the accepted text, not saved
+                self.wb.open_file(path, text=text)
+            ui.notify(f"Change applied to {path.name}: save it (Ctrl+S) to keep it")
+
+        self.wb.review_changes(path, current, proposed, accept, key=f"review:{key}")
 
     def _bubble(self, text: str, mine: bool, thinking: str = "",
                 attachments: list[str] | None = None) -> None:
@@ -259,8 +314,8 @@ class ChatPanel:
                     if thinking:
                         with ui.expansion("Reasoning", icon="psychology") \
                                 .props("dense").classes("w-full text-grey-8"):
-                            ui.markdown(thinking).classes("text-caption")
-                    ui.markdown(text).classes("text-body2")
+                            ChatMarkdown(thinking).classes("text-caption")
+                    ChatMarkdown(text).classes("text-body2")
                     self._code_buttons(text)
         self.scroll.scroll_to(percent=1.0)
 
@@ -272,8 +327,14 @@ class ChatPanel:
             self.record["items"].append({"kind": "note", "level": level, "text": text})
         self.scroll.scroll_to(percent=1.0)
 
-    def attach(self, text: str) -> None:
-        """Insert a mention (``@S1``) or a question in the input field."""
+    def attach(self, text: str, target: dict[str, Any] | None = None) -> None:
+        """Insert a mention (``@S1``) or a question in the input field.
+
+        ``target`` (``path`` and ``selection``): the code asked about, against which the code
+        of the answers can be reviewed.
+        """
+        if target is not None:
+            self.code_target = target
         self.wb.show_chat()
         self.input.value = (self.input.value + " " if self.input.value else "") + text
         self.input.run_method("focus")
@@ -380,7 +441,39 @@ class ChatPanel:
             self.wb.state.terminal.submit(text)
             self.wb.show_terminal()
             return
+        if self.editing:
+            self._withdraw_last()
+            self.cancel_edit()
+            self._note("info", "Edited question: new answer")
         await self.ask(text)
+
+    def _withdraw_last(self) -> None:
+        """Remove the last question and its answer from what the assistant remembers."""
+        if self.assistant is None:
+            return
+        transcript = self.assistant.transcript
+        start = max((k for k, e in enumerate(transcript) if e.get("role") == "user"),
+                    default=len(transcript))
+        del transcript[start:]
+
+    def edit_last(self) -> None:
+        """Put the last question back in the input field; sending it replaces the exchange."""
+        if self.busy:
+            ui.notify("The assistant is still answering", type="warning")
+            return
+        last = next((i for i in reversed(self.record["items"]) if i.get("kind") == "user"),
+                    None)
+        if last is None:
+            ui.notify("No question to edit", type="warning")
+            return
+        self.editing = True
+        self.edit_banner.set_visibility(True)
+        self.input.value = str(last.get("text", ""))
+        self.input.run_method("focus")
+
+    def cancel_edit(self) -> None:
+        self.editing = False
+        self.edit_banner.set_visibility(False)
 
     async def consent(self) -> bool:
         """Ask once per online profile (or provider) before sending it summaries (§11.5)."""
@@ -482,10 +575,7 @@ class ChatPanel:
         if last is None or self.assistant is None:
             ui.notify("No question to ask again", type="warning")
             return
-        transcript = self.assistant.transcript
-        start = max((k for k, e in enumerate(transcript) if e.get("role") == "user"),
-                    default=len(transcript))
-        del transcript[start:]
+        self._withdraw_last()
         self._note("info", "New answer to the last question")
         await self.ask(str(last.get("text", "")))
 
@@ -506,6 +596,8 @@ class ChatPanel:
         self.log.clear()
         self.cards.clear()
         self.record = self._new_record()
+        self.code_target = None
+        self.cancel_edit()
         self.context_label.text = ""
         self._note("info", "New chat", record=False)
 
@@ -618,7 +710,7 @@ class ChatPanel:
                 card = ui.card().props("flat").classes("q-pa-sm bg-grey-1 max-w-full")
                 with card:
                     reasoning = ui.column().classes("w-full gap-0")
-                    text = ui.markdown("").classes("text-body2")
+                    text = ChatMarkdown("").classes("text-body2")
                     buttons = ui.column().classes("gap-0")
             self.stream = {"card": card, "reasoning": reasoning, "text": text, "buttons": buttons,
                            "content": "", "thinking": "", "thinking_md": None}
@@ -667,7 +759,7 @@ class ChatPanel:
                     with bubble["reasoning"]:
                         with ui.expansion("Reasoning", icon="psychology") \
                                 .props("dense").classes("w-full text-grey-8"):
-                            bubble["thinking_md"] = ui.markdown("").classes("text-caption")
+                            bubble["thinking_md"] = ChatMarkdown("").classes("text-caption")
                 bubble["thinking_md"].set_content(bubble["thinking"])
             else:
                 bubble["content"] += event.get("text", "")
@@ -681,7 +773,7 @@ class ChatPanel:
                     with bubble["reasoning"]:
                         with ui.expansion("Reasoning", icon="psychology") \
                                 .props("dense").classes("w-full text-grey-8"):
-                            ui.markdown(thinking).classes("text-caption")
+                            ChatMarkdown(thinking).classes("text-caption")
                 with bubble["buttons"]:
                     self._code_buttons(text)
                 self.stream = None

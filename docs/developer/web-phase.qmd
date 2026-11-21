@@ -20,6 +20,7 @@ web.figures        data sent to the charts: decimated, aligned, JSON-safe
 web.security       Host/Origin guard, path confinement
 web.pwa            installable application: manifest, service worker, icons, offline page
 web.code           help for Python in the editor: Jedi (completion, signature, hover), ruff
+web.mathtext       formulas of the chat: LaTeX to MathML (latex2mathml), ChatMarkdown
 desktop            onthesignal desktop: the server in a child process, Qt WebEngine window
 plot.spec          FigureSpec: renderer-independent figure and results panel
 plot.layouts       one layout per analysis, generic layout, results_view()
@@ -98,6 +99,29 @@ Adding an analysis therefore takes: the computation and its registration (v2 pro
 layout if the generic one is not enough, and its key figures in `ResultsSpec`. The registry
 makes it appear in the palette, the *Analyses* view, the forms and the AI tools.
 
+**Rows linked to the chart.** A `Marker`, `Band` or `HLine` may carry a `ref`;
+`ResultsSpec.links` maps value keys to these references (`{"spur_frequency": "spur"}`) and
+`ResultsSpec.row_refs` gives the reference of each row of a table as a format string of its
+columns (`{"harmonics": "H{order}"}`). `results_view()` adds the `ref` to the rows;
+`render_results()` marks the rows whose reference is drawn (`figure_refs(spec)`) with
+`data-ots-for="<html id of the chart>"` and `data-ots-ref`. The chart component listens to
+`mouseover` on the document for these rows, highlights the element (`highlight(ref)`, a redraw
+without rebuilding the paths) and, when the cursor comes within a few pixels of a linked
+element of the panel it is over (`elementAt`), gives the class `ots-linked` to its rows: no
+round trip to the server.
+
+**Traces kept out of the result.** A curve sampled at a constant step can be kept in
+`Result.extra` (not serialized) as `{"y", "dt", "label", "unit"}`: `layouts.result_curve()`
+builds it on demand, so that a long trace (the band-limited noise of `noise`, as many points
+as the record) does not grow the JSON of the result. Figures refer to it by its key like any
+curve.
+
+**Zoom of the results.** The result charts are `zoomable`: after a zoom, `ResultTab` asks
+`panel_data(result, panel, bins, window=(min, max), margin=1.0)` for the panels that share the
+abscissa of the zoomed one (heatmaps excluded), so that a long spectrum or trace shows its
+points at full resolution. `decimate_xy` keeps the first and last points, so that the full
+view spans the whole curve.
+
 **Heatmaps.** A panel with a `Heatmap` (spectrogram) draws `Result.extra[key]` (`t`, `f`,
 `z`) in its plotting area. `Axis.offset` and `Axis.factor` turn the matplotlib dates of the
 analysis into seconds from `time_origin` (`(x - offset) * factor`), so that the cursor reads
@@ -151,6 +175,26 @@ the data again.
   display, `transcript` for the assistant, tool calls as dictionaries) in
   `.onthesignal/chats/<id>.json`. `confirm(question, details, key)` of the user hosts lets
   the chat remember *Allow for this chat* per tool.
+- **Diff view.** `MonacoEditor(proposed, language, original=current)` creates a Monaco diff
+  editor (original read-only, proposal editable; `diff` event: changed blocks). `DiffTab`
+  calls `on_accept(text)` or `on_reject()`; closing the tab refuses. `/ai_script` goes
+  through `OnTheSignalConsole.review_handler(path, original, proposed) -> str | None`: the web
+  terminal sets it to `WebState.request_review`, which asks the browser tabs (`review`
+  request, `request_done` closes the view in the others) and waits like a confirmation;
+  `Assistant.generate_script` writes the accepted text, or nothing. *Ask AI* of the editor
+  gives the chat a `code_target` (file and selected code): *Review in <file>* replaces that
+  code by the proposal and applies the accepted text to the editor with `applyText` (one
+  edit, undone by Ctrl+Z, not saved).
+- **Formulas and edits in the chat.** `ChatMarkdown` (a `ui.markdown`) replaces the formulas
+  by placeholders outside the code, renders the Markdown, then puts back the MathML of
+  latex2mathml; a formula that cannot be converted stays as text. *Edit the last question*
+  sets `editing`: the next *Send* withdraws the last exchange from the transcript (as
+  *Regenerate*) and asks the edited question.
+- **Split work area.** `WorkArea` has two sides in a `ui.splitter` (the right one hidden by
+  the class `ots-unsplit`); each tab item records its `side`, a tab opens on the side used last
+  (`focus`, set by a `mousedown` on the side) and moves with `element.move()` of its tab and
+  of its panel. The components are mounted again on the other side: an editor saves its text
+  and its modified state in its props first (`before_move`, prop `startDirty`).
 - **Configuration.** `Config` keeps its `layers` (global and project files) and the `session`
   values; `origin(key)`, `unknown_keys()`, `items()` and `reload()` serve the *Settings* view.
   `ai_settings(config)` merges `[ai]` and the active profile; every consumer (provider,
@@ -247,4 +291,6 @@ complete list is in the
 - `tests/test_web.py`: security middleware, chart data, heatmaps, comparisons, shared state,
   terminal engine, real time and acquisition with a fake SeedLink client, batches;
 - `tests/test_web_e2e.py`: browser tests with Playwright and the Google Chrome of the machine,
-  opt-in (`ONTHESIGNAL_E2E=1 pytest tests/test_web_e2e.py`, `pip install -e ".[e2e]"`).
+  opt-in (`ONTHESIGNAL_E2E=1 pytest tests/test_web_e2e.py`, `pip install -e ".[e2e]"`): charts,
+  toolbar, linked rows, zoom of a result, split work area, editor, chat (consent, formulas,
+  edit of the last question), PWA, dark theme.

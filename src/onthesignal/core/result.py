@@ -21,6 +21,9 @@ import numpy as np
 from .._version import __version__
 from .units import fmt_num, format_quantity
 
+#: Rows of a table written by :meth:`Result.to_text` (all of them are in the JSON).
+TEXT_ROWS = 50
+
 
 def _cell(value: Any) -> str:
     return fmt_num(value) if isinstance(value, (int, float)) else str(value)
@@ -253,9 +256,12 @@ class Result:
                 lines.append(f"  [{name}]")
                 keys = list(table[0].keys())
                 lines.append("    " + "  ".join(f"{k:>12}" for k in keys))
-                for row in table:
+                for row in table[:TEXT_ROWS]:
                     cells = [_cell(row[k]) for k in keys]
                     lines.append("    " + "  ".join(f"{c:>12}" for c in cells))
+                if len(table) > TEXT_ROWS:
+                    lines.append(f"    … {len(table) - TEXT_ROWS} more rows (JSON export, "
+                                 "web interface)")
         for w in self.warnings:
             lines.append(f"  Warning: {w}")
         return "\n".join(lines)

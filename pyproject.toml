@@ -20,7 +20,7 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = ["anthropic", "openai", "ollama"]
-web = ["nicegui>=4.0,<5", "jedi>=0.19", "ruff>=0.5"]
+web = ["nicegui>=4.0,<5", "jedi>=0.19", "ruff>=0.5", "latex2mathml>=3.77"]
 e2e = ["playwright"]
 desktop = ["PySide6>=6.7"]
 docs = ["quartodoc", "griffe<2", "jupyter"]

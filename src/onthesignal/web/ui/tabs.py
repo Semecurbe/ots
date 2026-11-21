@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import base64
+import csv
+import functools
 import io
 import os
 import tempfile
@@ -18,13 +20,20 @@ from ...core.errors import ParameterError
 from ...core.params import safe_eval
 from ...core.result import Result
 from ...core.units import CANONICAL_UNITS, fmt_num, normalize_unit, pretty_unit
-from ...plot.layouts import comparison_spec, comparison_view, figure_specs, results_view
+from ...plot.layouts import (
+    comparison_spec,
+    comparison_view,
+    figure_refs,
+    figure_specs,
+    results_view,
+)
 from ..components import MonacoEditor, UPlotChart, language_of
 from ..figures import (
     DEFAULT_BINS,
     array_figure,
     figure_payload,
     palette,
+    panel_data,
     signal_figure,
     signal_payload,
     time_origin,
@@ -39,43 +48,111 @@ UNITS = list(CANONICAL_UNITS)
 
 # ---------------------------------------------------------------------------------- manager
 class WorkArea:
-    """Tabs of the work area; a tab is identified by a key such as ``signal:S1``."""
+    """Tabs of the work area; a tab is identified by a key such as ``signal:S1``.
+
+    The area can be split in two sides, side by side (§4.3): a tab opens on the side used
+    last, and moves to the other side from its menu (right click) or the palette.
+    """
 
     def __init__(self, wb: Workbench) -> None:
         self.wb = wb
         self.items: dict[str, dict[str, Any]] = {}
+        self.sides: list[dict[str, Any]] = []
+        self.focus = 0
+        self.split = False
 
     def build(self) -> None:
-        with ui.column().classes("w-full h-full gap-0"):
-            self.tabs = ui.tabs(on_change=lambda _: self.wb.on_tab_change()) \
-                .props("dense align=left no-caps inline-label outside-arrows mobile-arrows "
-                       "active-color=primary indicator-color=primary") \
-                .classes("w-full text-grey-8 bg-grey-1")
-            self.panels = ui.tab_panels(self.tabs).props("keep-alive animated=false") \
+        self.splitter = ui.splitter(value=100, limits=(15, 100)) \
+            .props("disable").classes("w-full h-full ots-work ots-unsplit")
+        with self.splitter.before:
+            self.sides.append(self._side(0))
+        with self.splitter.after:
+            self.sides.append(self._side(1))
+
+    def _side(self, index: int) -> dict[str, Any]:
+        column = ui.column().classes("w-full h-full gap-0 no-wrap ots-side")
+        column.on("mousedown", lambda: self._set_focus(index), [])
+        with column:
+            with ui.row().classes("w-full items-center no-wrap gap-0 bg-grey-1 ots-side-bar"):
+                tabs = ui.tabs(on_change=lambda _: self.wb.on_tab_change()) \
+                    .props("dense align=left no-caps inline-label outside-arrows mobile-arrows "
+                           "active-color=primary indicator-color=primary") \
+                    .classes("grow min-w-0 text-grey-8")
+                if index == 0:
+                    ui.button(icon="vertical_split", on_click=self.toggle_split) \
+                        .props("flat dense round size=sm").classes("q-mx-xs") \
+                        .tooltip("Split the work area in two sides (Ctrl+\\)")
+                else:
+                    ui.button(icon="close", on_click=self.unsplit) \
+                        .props("flat dense round size=sm").classes("q-mx-xs") \
+                        .tooltip("Close this side: its tabs go back to the left")
+            panels = ui.tab_panels(tabs).props("keep-alive animated=false") \
                 .classes("w-full grow overflow-auto")
-            with self.panels:
-                self.empty = ui.tab_panel("empty")
-                with self.empty, ui.column().classes("w-full items-center q-pa-xl text-grey-7"):
-                    ui.icon("insights", size="48px")
-                    ui.label("Click an object of the Objects panel to display it.")
-                    ui.label("Type / to search the commands, or use the Python terminal below.")
-            self.tabs.set_value("empty")
+            with panels:
+                empty = ui.tab_panel("empty")
+                with empty, ui.column().classes("w-full items-center q-pa-xl text-grey-7"):
+                    if index == 0:
+                        ui.icon("insights", size="48px")
+                        ui.label("Click an object of the Objects panel to display it.")
+                        ui.label("Type / to search the commands, or use the Python terminal "
+                                 "below.")
+                    else:
+                        ui.icon("vertical_split", size="40px")
+                        ui.label("Right side of the work area: what you open now appears here.")
+                        ui.label("Right-click a tab, then Move to the other side, to bring it "
+                                 "here.")
+            tabs.set_value("empty")
+        return {"column": column, "tabs": tabs, "panels": panels, "empty": empty}
+
+    @property
+    def tabs(self) -> Any:
+        """Tab bar of the side in use."""
+        return self.sides[self.focus]["tabs"]
+
+    def _set_focus(self, index: int) -> None:
+        index = index if self.split else 0
+        changed = index != self.focus
+        self.focus = index
+        for i, side in enumerate(self.sides):  # the side in use is marked when split
+            if i == index and self.split:
+                side["column"].classes(add="ots-focused")
+            else:
+                side["column"].classes(remove="ots-focused")
+        if changed:
+            self.wb.on_tab_change()
+
+    def _keys(self, side: int) -> list[str]:
+        return [k for k, item in self.items.items() if item["side"] == side]
+
+    def _left(self, side: int, key: str) -> None:
+        """Tab ``key`` left ``side``: when it was the active one, show the last other tab."""
+        tabs = self.sides[side]["tabs"]
+        if tabs.value == key or tabs.value not in self.items:
+            keys = self._keys(side)
+            tabs.set_value(keys[-1] if keys else "empty")
 
     def open(self, key: str, title: str, builder: Callable[[], Any], icon: str = "") -> None:
         if key in self.items:
-            self.tabs.set_value(key)
+            side = self.items[key]["side"]
+            self.sides[side]["tabs"].set_value(key)
+            self._set_focus(side)
             return
-        with self.tabs:
+        side = self.focus if self.split else 0
+        with self.sides[side]["tabs"]:
             tab = ui.tab(key, label=title, icon=icon or None)
             with tab:
                 ui.icon("close", size="14px").classes("q-ml-sm text-grey-6 cursor-pointer") \
                     .on("click.stop", lambda key=key: self.close(key))
-        with self.panels:
+                with ui.context_menu():
+                    ui.menu_item("Move to the other side", lambda key=key: self.move(key))
+                    ui.menu_item("Close", lambda key=key: self.close(key))
+        with self.sides[side]["panels"]:
             panel = ui.tab_panel(key).classes("q-pa-sm")
             with panel:
                 content = builder()
-        self.items[key] = {"tab": tab, "panel": panel, "content": content, "title": title}
-        self.tabs.set_value(key)
+        self.items[key] = {"tab": tab, "panel": panel, "content": content, "title": title,
+                           "side": side}
+        self.sides[side]["tabs"].set_value(key)
 
     def close(self, key: str) -> None:
         item = self.items.pop(key, None)
@@ -86,11 +163,58 @@ class WorkArea:
             closing()
         item["tab"].delete()
         item["panel"].delete()
-        keys = list(self.items)
-        self.tabs.set_value(keys[-1] if keys else "empty")
+        self._left(item["side"], key)
+
+    async def move(self, key: str | None = None) -> None:
+        """Move a tab (the active one by default) to the other side, splitting the area."""
+        key = key or self.active() or ""
+        item = self.items.get(key)
+        if item is None:
+            ui.notify("No tab to move", type="warning")
+            return
+        if not self.split:
+            self._show_split(True)
+        source, target = item["side"], 1 - item["side"]
+        prepare = getattr(item["content"], "before_move", None)
+        if callable(prepare):  # an editor keeps its unsaved text
+            await prepare()
+        item["tab"].move(self.sides[target]["tabs"])
+        item["panel"].move(self.sides[target]["panels"])
+        item["side"] = target
+        self._left(source, key)
+        self.sides[target]["tabs"].set_value(key)
+        self._set_focus(target)
+
+    def _show_split(self, on: bool) -> None:
+        self.split = on
+        self.splitter.value = 50 if on else 100
+        if on:
+            self.splitter.props(remove="disable").classes(remove="ots-unsplit")
+        else:
+            self.splitter.props(add="disable").classes(add="ots-unsplit")
+
+    async def toggle_split(self) -> None:
+        """Split the area: the active tab goes to the right when the left keeps another one."""
+        if self.split:
+            await self.unsplit()
+            return
+        active = self.active()
+        self._show_split(True)
+        if active is not None and len(self._keys(0)) > 1:
+            await self.move(active)
+            self._set_focus(0)
+        else:
+            self._set_focus(1)  # the next tab opens on the right
+
+    async def unsplit(self) -> None:
+        """One side again: the tabs of the right side go back to the left."""
+        for key in self._keys(1):
+            await self.move(key)
+        self._show_split(False)
+        self._set_focus(0)
 
     def active(self) -> str | None:
-        value = self.tabs.value
+        value = self.sides[self.focus]["tabs"].value if self.sides else None
         return value if isinstance(value, str) and value in self.items else None
 
     def content(self, key: str) -> Any:
@@ -440,8 +564,86 @@ class SignalTab:
 
 
 # ---------------------------------------------------------------------------------- results
-def render_results(result: Result, view: dict[str, Any]) -> None:
-    """Results panel under a figure (§7.5)."""
+def _link(element: Any, chart_id: str, ref: str) -> Any:
+    """Mark an element of the results panel as describing the chart element ``ref``."""
+    if chart_id and ref:
+        element.props(f'data-ots-for="{chart_id}" data-ots-ref="{ref}"')
+    return element
+
+
+#: Table rows shown per page (the whole table is copied and exported).
+TABLE_PAGE = 25
+
+
+def _table_tsv(table: dict[str, Any]) -> str:
+    return "\n".join(["\t".join(table["columns"]),
+                      *("\t".join(row) for row in table["rows"])])
+
+
+def _table_csv(table: dict[str, Any]) -> bytes:
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(table["columns"])
+    for row in table["values"]:
+        writer.writerow(["" if v is None else v for v in row])
+    return buffer.getvalue().encode("utf-8")
+
+
+def render_table(table: dict[str, Any], chart_id: str = "", refs: set[str] | None = None,
+                 filename: str = "table") -> None:
+    """Table of a result, sorted on its values (numbers as numbers), copied and exported.
+
+    Rows whose reference is drawn on the chart ``chart_id`` are linked to it (§7.5).
+    """
+    refs = refs or set()
+    columns = table["columns"]
+
+    def copy() -> None:
+        ui.clipboard.write(_table_tsv(table))
+        ui.notify("Table copied")
+
+    with ui.row().classes("w-full items-center gap-1 q-mt-sm"):
+        ui.label(table["name"].capitalize()).classes("text-subtitle2")
+        ui.label(f"{len(table['rows'])} rows").classes("text-caption text-grey-7")
+        ui.button(icon="content_copy", on_click=copy) \
+            .props("flat dense round size=sm").tooltip("Copy the table (tab-separated)")
+        ui.button(icon="download",
+                  on_click=lambda: ui.download.content(_table_csv(table), f"{filename}.csv")) \
+            .props("flat dense round size=sm").tooltip("Export the table as CSV")
+    rows = []
+    for i, (texts, values, ref) in enumerate(zip(table["rows"], table["values"],
+                                                 table.get("refs") or [""] * len(table["rows"]),
+                                                 strict=True)):
+        row: dict[str, Any] = {"__i": i, "__ref": ref if ref in refs else ""}
+        for c, text, value in zip(columns, texts, values, strict=True):
+            row[c], row[c + "__text"] = value, text
+        rows.append(row)
+    spec_columns = [{"name": c, "label": c, "field": c, "align": "right", "sortable": True}
+                    for c in columns]
+    pagination = {"rowsPerPage": TABLE_PAGE} if len(rows) > TABLE_PAGE else None
+    grid = ui.table(columns=spec_columns, rows=rows, row_key="__i", pagination=pagination) \
+        .props("dense flat bordered").classes("max-w-[900px]")
+    grid.add_slot("body", (
+        '<q-tr :props="props" :data-ots-ref="props.row.__ref || undefined" '
+        f':data-ots-for="props.row.__ref ? {chart_id!r} : undefined">'
+        '<q-td v-for="col in props.cols" :key="col.name" :props="props">'
+        "{{ props.row[col.name + '__text'] }}</q-td></q-tr>"))
+
+
+def render_results(result: Result, view: dict[str, Any], chart: UPlotChart | None = None,
+                   refs: set[str] | None = None) -> None:
+    """Results panel under a figure (§7.5).
+
+    The rows describing an element drawn on ``chart`` (a reference of ``refs``) are linked to
+    it: hovering the row highlights the element, and the other way round.
+    """
+    chart_id = chart.html_id if chart is not None else ""
+    refs = refs if chart is not None else set()
+    refs = refs or set()
+
+    def ref_of(row: dict[str, Any]) -> str:
+        return row.get("ref", "") if row.get("ref", "") in refs else ""
+
     for warning in view["warnings"]:
         with ui.row().classes("w-full items-center gap-2 q-pa-xs bg-amber-1 rounded"):
             ui.icon("warning", color="amber-9")
@@ -449,8 +651,10 @@ def render_results(result: Result, view: dict[str, Any]) -> None:
     if view["headline"]:
         with ui.row().classes("w-full gap-2 q-my-sm"):
             for item in view["headline"]:
-                with ui.card().props("flat bordered").classes("q-pa-sm min-w-[150px]") \
-                        .on("click", lambda item=item: _copy(item["value"])):
+                card = ui.card().props("flat bordered").classes("q-pa-sm min-w-[150px]") \
+                    .on("click", lambda item=item: _copy(item["value"]))
+                _link(card, chart_id, ref_of(item))
+                with card:
                     ui.label(item["label"]).classes("text-caption text-grey-7")
                     ui.label(item["value"]).classes("text-h6 text-grey-10")
                     if item["physical"]:
@@ -461,17 +665,20 @@ def render_results(result: Result, view: dict[str, Any]) -> None:
                 ui.label(group["title"]).classes("text-subtitle2 q-mt-xs")
                 with ui.grid(columns=3).classes("gap-x-4 gap-y-0 items-baseline"):
                     for row in group["rows"]:
-                        ui.label(row["label"]).classes("text-body2 text-grey-8")
-                        ui.label(row["value"]).classes("text-body2 text-right cursor-pointer") \
-                            .on("click", lambda row=row: _copy(row["value"]))
-                        ui.label(f"({row['physical']})" if row["physical"] else "") \
-                            .classes("text-caption text-grey-7")
+                        ref = ref_of(row)
+                        label = _link(ui.label(row["label"]).classes("text-body2 text-grey-8"),
+                                      chart_id, ref)
+                        if ref:
+                            label.classes("ots-ref-label").tooltip(
+                                "Shown on the chart: hover to highlight it")
+                        _link(ui.label(row["value"]).classes("text-body2 text-right "
+                                                             "cursor-pointer"),
+                              chart_id, ref).on("click", lambda row=row: _copy(row["value"]))
+                        _link(ui.label(f"({row['physical']})" if row["physical"] else "")
+                              .classes("text-caption text-grey-7"), chart_id, ref)
     for table in view["tables"]:
-        ui.label(table["name"].capitalize()).classes("text-subtitle2 q-mt-sm")
-        columns = [{"name": c, "label": c, "field": c, "align": "right", "sortable": True}
-                   for c in table["columns"]]
-        rows = [dict(zip(table["columns"], r, strict=True)) for r in table["rows"]]
-        ui.table(columns=columns, rows=rows).props("dense flat bordered").classes("max-w-[900px]")
+        render_table(table, chart_id, refs,
+                     f"{result.name}_{result.kind}_{table.get('key', table['name'])}")
 
     def tsv() -> str:
         lines = [f"{r['label']}\t{r['value']}\t{r['physical']}" for g in view["groups"]
@@ -515,6 +722,7 @@ class ResultTab:
     def __init__(self, wb: Workbench, name: str) -> None:
         self.wb = wb
         self.name = name
+        self._zoom_seq: dict[int, int] = {}
 
     def build(self) -> ResultTab:
         result = self.wb.state.session.get_result(self.name)
@@ -560,6 +768,7 @@ class ResultTab:
         return self
 
     def _figure(self, result: Result, spec: Any) -> None:
+        chart = None
         if spec.static:
             png = _matplotlib_png(result)
             if png:
@@ -567,11 +776,37 @@ class ResultTab:
         elif spec.panels:
             payload = figure_payload(result, spec)
             height = int(min(760, 260 * sum(p.height for p in spec.panels) + 40))
-            chart = UPlotChart(payload["figure"], payload["data"], palette(), height=height)
+            # Zoomable: the visible window is sent again at full resolution (long spectra,
+            # the band-limited noise of noise…).
+            chart = UPlotChart(payload["figure"], payload["data"], palette(), height=height,
+                               zoomable=True)
+            chart.on("zoom", functools.partial(self._on_zoom, spec, chart))
             self.charts.append(chart)
         if spec.note:
             ui.label(spec.note).classes("text-caption text-grey-7")
-        render_results(result, results_view(result, spec.results))
+        render_results(result, results_view(result, spec.results), chart, figure_refs(spec))
+
+    async def _on_zoom(self, spec: Any, chart: UPlotChart, e: Any) -> None:
+        args = e.args or {}
+        zoomed = next((p for p in spec.panels if p.id == args.get("panel")), None)
+        lo, hi = args.get("min"), args.get("max")
+        if zoomed is None or lo is None or hi is None:
+            return
+        # The panels sharing the abscissa of the zoomed one follow it; heatmaps stay whole.
+        panels = [p for p in spec.panels if p.heatmap is None
+                  and (p is zoomed or (zoomed.sync and p.sync == zoomed.sync))]
+        seq = self._zoom_seq[chart.id] = self._zoom_seq.get(chart.id, 0) + 1
+        result = self.result
+
+        def compute() -> dict[str, Any]:
+            return {p.id: panel_data(result, p, DEFAULT_BINS, (float(lo), float(hi)), 1.0)
+                    for p in panels}
+
+        data = await run.io_bound(compute)
+        if self._zoom_seq.get(chart.id) != seq:  # a newer window was asked meanwhile
+            return
+        for panel_id, d in data.items():
+            chart.set_panel_data(panel_id, d)
 
     def _chart_png(self) -> None:
         if self.charts:
@@ -1016,14 +1251,20 @@ def _tree_nodes(value: Any, prefix: str = "n", depth: int = 0) -> list[dict]:
 class EditorTab:
     """Text file in Monaco (§9): save, syntax check, run script, run selection."""
 
-    def __init__(self, wb: Workbench, path: Path) -> None:
+    def __init__(self, wb: Workbench, path: Path, text: str | None = None) -> None:
         self.wb, self.path = wb, path
         self.dirty = False
         self.mtime = path.stat().st_mtime if path.exists() else 0.0
+        #: Text to edit instead of the file's (a change accepted after its tab was closed).
+        self.initial = text
 
     def build(self) -> EditorTab:
-        text = self.path.read_text(encoding="utf-8", errors="replace") if self.path.exists() \
-            else ""
+        if self.initial is not None:
+            text = self.initial
+        elif self.path.exists():
+            text = self.path.read_text(encoding="utf-8", errors="replace")
+        else:
+            text = ""
         with ui.column().classes("w-full h-full gap-1"):
             with ui.row().classes("w-full items-center gap-1"):
                 ui.label(str(self.path.relative_to(self.wb.root))
@@ -1048,6 +1289,9 @@ class EditorTab:
                     .tooltip("Attach the selection (or the current line / cell) to the chat")
             self.editor = MonacoEditor(text, language_of(self.path)) \
                 .classes("w-full").style("height: calc(100vh - 330px); min-height: 260px")
+            if self.initial is not None:  # not the saved text
+                self.editor._props["startDirty"] = True
+                self._set_dirty(True)
             self.editor.on("save", lambda e: self.save(e.args))
             self.editor.on("run", lambda e: self.run(e.args))
             self.editor.on("run_selection", self._run_selection_event)
@@ -1095,6 +1339,19 @@ class EditorTab:
         self.dirty = dirty
         self.dirty_label.text = "● modified" if dirty else ""
 
+    def apply_text(self, text: str) -> None:
+        """Text accepted in a diff view: one edit, undone by Ctrl+Z, saved by the user."""
+        self.editor.apply_text(text)
+
+    async def before_move(self) -> None:
+        """The tab moves to the other side, where the editor is created again: keep its text
+        and its modified state."""
+        text = await self.editor.get_value()
+        if text is not None:
+            self.editor._props["value"] = str(text)
+        self.editor._props["startDirty"] = self.dirty
+        self.editor.update()
+
     async def _save_clicked(self) -> None:
         self.save(await self.editor.get_value())
 
@@ -1113,8 +1370,10 @@ class EditorTab:
             return
         fence = {"python": "python", "markdown": "markdown", "ini": "toml"}.get(
             language_of(self.path), "")
+        # The code proposed in the answer can then be reviewed against this file (§9.6).
         self.wb.chat.attach(f"About this code of {self.path.name}:\n```{fence}\n"
-                            f"{str(text).rstrip()}\n```\n")
+                            f"{str(text).rstrip()}\n```\n",
+                            target={"path": self.path, "selection": str(text)})
 
     async def _run_selection_clicked(self) -> None:
         text = await self.editor.run_method("selectionOrCell", timeout=5)
@@ -1214,6 +1473,74 @@ class EditorTab:
             ui.notify(f"{self.path.name} was closed with unsaved changes", type="warning")
 
 
+class DiffTab:
+    """Change proposed by the AI in a Monaco diff view (§9.6), accepted or refused as a whole.
+
+    The proposal (right) can still be edited before ``Accept``; ``on_accept(text)`` receives
+    the accepted text. Rejecting, or closing the tab, calls ``on_reject``: nothing is written
+    or run without the user's agreement.
+    """
+
+    def __init__(self, wb: Workbench, title: str, path: Path | None, original: str,
+                 proposed: str, on_accept: Callable[[str], Any],
+                 on_reject: Callable[[], Any] | None = None, note: str = "") -> None:
+        self.wb, self.title, self.path = wb, title, path
+        self.original, self.proposed = original, proposed
+        self.on_accept, self.on_reject, self.note = on_accept, on_reject, note
+        self.decided = False
+
+    def build(self) -> DiffTab:
+        with ui.column().classes("w-full h-full gap-1"):
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.icon("difference", color="primary", size="20px")
+                ui.label(self.title).classes("text-subtitle2")
+                self.count = ui.label("").classes("text-caption text-grey-7")
+                ui.space()
+                ui.button("Accept", icon="check", on_click=self.accept) \
+                    .props("unelevated dense no-caps").tooltip("Use the text on the right")
+                ui.button("Reject", icon="close", on_click=self.reject) \
+                    .props("flat dense no-caps")
+            ui.label((self.note + " " if self.note else "") +
+                     "Left: current text. Right: proposal of the AI, which you can still "
+                     "edit. Nothing is written or run before you accept.") \
+                .classes("text-caption text-grey-7")
+            self.editor = MonacoEditor(self.proposed, language_of(self.path or "text.txt"),
+                                       original=self.original) \
+                .classes("w-full").style("height: calc(100vh - 320px); min-height: 260px")
+            self.editor.on("diff", lambda e: self._changes(e.args))
+        return self
+
+    def _changes(self, n: Any) -> None:
+        n = int(n or 0)
+        self.count.text = "no change" if n == 0 else f"{n} changed block{'s' if n > 1 else ''}"
+
+    async def accept(self) -> None:
+        text = await self.editor.get_value()
+        self.decided = True
+        outcome = self.on_accept(self.proposed if text is None else str(text))
+        if hasattr(outcome, "__await__"):
+            await outcome
+        self._close()
+
+    def reject(self) -> None:
+        self.decided = True
+        if self.on_reject is not None:
+            self.on_reject()
+        self._close()
+
+    def _close(self) -> None:
+        key = self.wb.work.key_of(self)
+        if key is not None:
+            self.wb.work.close(key)
+
+    def close(self) -> None:
+        """Tab closed: without a choice, the proposal is refused."""
+        if not self.decided:
+            self.decided = True
+            if self.on_reject is not None:
+                self.on_reject()
+
+
 class ReportTab:
     """HTML preview of a rendered report."""
 
@@ -1226,5 +1553,6 @@ class ReportTab:
         return self
 
 
-__all__ = ["BatchTab", "CompareTab", "EditorTab", "FigureTab", "RealtimeTab", "ReportTab",
-           "ResultTab", "SignalTab", "VariableTab", "WorkArea", "render_results"]
+__all__ = ["BatchTab", "CompareTab", "DiffTab", "EditorTab", "FigureTab", "RealtimeTab",
+           "ReportTab", "ResultTab", "SignalTab", "VariableTab", "WorkArea", "render_results",
+           "render_table"]

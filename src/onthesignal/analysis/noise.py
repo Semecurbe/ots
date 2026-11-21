@@ -96,6 +96,18 @@ def _noise(signal: Signal, p: dict, kind: str) -> tuple[Result, Signal, Any]:
             "mains_width": p["mains_width"],
         }
     )
+    if kind == "noise":
+        # The band-limited noise, drawn above the results by the web interface (web
+        # specification §7.4). Kept in ``extra``, which is not serialized: the JSON of the
+        # result stays small.
+        physical = show_physical(sig, p)
+        r.extra["trace"] = {
+            "y": (y * (sig.sensitivity if physical else 1.0)).astype(np.float32),
+            "dt": 1.0 / sig.sampling_rate,
+            "origin": sig.starttime.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+            "label": "Band-limited noise",
+            "unit": sig.unit if physical else COUNTS,
+        }
     return r, sig, band
 
 

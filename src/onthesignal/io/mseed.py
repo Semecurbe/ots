@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,14 @@ from ..core.errors import FileFormatError, ParameterError
 from ..core.signal import Signal, file_sha256, to_utc
 
 GAP_POLICIES = ("longest", "fill", "split", "error")
+#: Day file of an SDS archive: ``NET.STA.LOC.CHA.TYPE.YEAR.DAY`` (``XX.LORA.HA.BHE.D.2026.264``).
+SDS_NAME = re.compile(r"^[^.]*\.[^.]+\.[^.]*\.[^.]+\.[A-Z]\.\d{4}\.\d{3}$")
+
+
+def file_title(path: Path) -> str:
+    """Default title of a loaded file: its name without extension, or its whole name for a
+    day file of an SDS archive, whose last part is the day of the year."""
+    return path.name if SDS_NAME.match(path.name) else path.stem
 
 
 def _gap_list(stream: Stream) -> list[dict]:
@@ -105,7 +114,7 @@ def read_obspy(
         for tr in traces:
             sig = Signal.from_trace(
                 tr,
-                title=path.stem,
+                title=file_title(path),
                 source=str(path),
                 sha256=sha,
                 gaps=[dict(g) for g in gap_info],

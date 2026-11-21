@@ -10,12 +10,31 @@ from __future__ import annotations
 
 import numpy as np
 
+#: Samples handled at once when looking for the extrema of the segments: a record of a day
+#: (21.6 million samples at 250 Hz) is reduced by blocks, with a bounded temporary memory.
+CHUNK = 1 << 21
+
 
 def _segment_extrema(y: np.ndarray, starts: np.ndarray) -> np.ndarray:
     """Sorted indices of the minimum and the maximum of each segment ``y[starts[i]:...]``.
 
     Non-finite values are ignored; a segment without any finite value contributes nothing.
+    Long series are handled by blocks of whole segments of about :data:`CHUNK` samples.
     """
+    if y.size <= CHUNK or starts.size < 2:
+        return _block_extrema(y, starts)
+    parts = []
+    i, total = 0, starts.size
+    while i < total:
+        j = max(int(np.searchsorted(starts, starts[i] + CHUNK, side="left")), i + 1)
+        end = int(starts[j]) if j < total else y.size
+        first = int(starts[i])
+        parts.append(_block_extrema(y[first:end], starts[i:j] - first) + first)
+        i = j
+    return np.concatenate(parts)
+
+
+def _block_extrema(y: np.ndarray, starts: np.ndarray) -> np.ndarray:
     n = y.size
     counts = np.diff(np.append(starts, n))
     seg = np.repeat(np.arange(starts.size), counts)
@@ -57,7 +76,8 @@ def decimate_xy(x: np.ndarray, y: np.ndarray, n_bins: int, scale: str = "linear"
     Bins are equal in ``x`` (``scale="linear"``) or in ``log10(x)`` (``scale="log"``, where
     the points with ``x <= 0`` are dropped since a logarithmic axis cannot show them). A
     curve with no more than ``2 * n_bins`` points is returned unchanged (except for that
-    filtering). ``x`` must be increasing, as for every curve of a result.
+    filtering); otherwise its first and last points are kept as well, so that the curve spans
+    its whole abscissa. ``x`` must be increasing, as for every curve of a result.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -73,7 +93,7 @@ def decimate_xy(x: np.ndarray, y: np.ndarray, n_bins: int, scale: str = "linear"
         return x[idx], y[idx]
     bins = np.clip(((u - lo) / (hi - lo) * n_bins).astype(int), 0, n_bins - 1)
     starts = np.concatenate(([0], np.flatnonzero(np.diff(bins)) + 1))
-    idx = _segment_extrema(y, starts)
+    idx = np.union1d(_segment_extrema(y, starts), [0, x.size - 1])
     return x[idx], y[idx]
 
 

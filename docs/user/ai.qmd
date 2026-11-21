@@ -47,12 +47,15 @@ the environment for Claude and ChatGPT.
 | `/ai <question>` | one question |
 | `/init [folder]` | summarize every signal (and the miniSEED files of a folder) into `.onthesignal/init_context.md` |
 | `/context` | edit `context.md` (bench, digitizer settings, expected performance...) |
-| `/ai_script <name> "<description>"` | generate a script from the template; review it with `/edit_script` |
+| `/ai_script <name> "<description>"` | generate a script from the template; review it with `/edit_script` (web interface: in a diff view, before it is written) |
 | `/gen_ai_doc` | regenerate `docs/ai/agent.md` |
 
 In the web interface, the assistant is the chat panel on the right: tool calls appear as cards,
-confirmations as *Allow* / *Deny* buttons, and the tune button changes the provider, the model,
-the server URL and the context for the session ([Web interface](web.qmd#ai-chat)).
+confirmations as *Allow* / *Deny* buttons, formulas are drawn, the last question can be edited
+or asked again, and the tune button changes the provider, the model, the server URL and the
+context for the session ([Web interface](web.qmd#ai-chat)). Code proposed by the assistant
+about a file of the editor, and the scripts of `/ai_script`, are shown in a diff view and
+applied only when you accept them ([Editor](web.qmd#editor)).
 
 ## What the model receives
 
@@ -66,7 +69,8 @@ the server URL and the context for the session ([Web interface](web.qmd#ai-chat)
 
 - Analyses and inspection tools run without confirmation (`auto_execute = "read_only"`).
 - Running a script, writing a report, running Python code proposed by a model without tool
-  calling: always asked first, the code being shown.
+  calling: always asked first, the code being shown. In the web interface, a script generated
+  by `/ai_script` is written only after you accept it in a diff view.
 - No system command is ever run. Every AI action is logged in the session history.
 - In the web interface, the first request to an online provider (Claude, ChatGPT) asks for
   your agreement to send it the summaries.

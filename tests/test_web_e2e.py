@@ -27,6 +27,8 @@ if shutil.which("google-chrome") is None and shutil.which("chrome") is None:
     pytest.skip("Google Chrome is needed", allow_module_level=True)
 
 DATA = Path(__file__).resolve().parents[1] / "data" / "adc_noise_shorted.mseed"
+#: Project folder of the server of this module (set by the ``server`` fixture).
+PROJECT: dict[str, Path] = {}
 
 
 def _free_port() -> int:
@@ -38,6 +40,7 @@ def _free_port() -> int:
 @pytest.fixture(scope="module")
 def server(tmp_path_factory):
     project = tmp_path_factory.mktemp("webproject")
+    PROJECT["path"] = project
     (project / "data").mkdir()
     shutil.copy(DATA, project / "data" / DATA.name)
     # The history of this test stays in the project, not in the user's history file.
@@ -297,4 +300,86 @@ def test_dark_theme_settings_origins_and_editor_completion(page):
     page.locator(".q-menu .q-item:has-text('Light')").first.click()
     page.wait_for_function("() => !document.body.classList.contains('body--dark')",
                            timeout=5000)
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+def _chart(page, title: str) -> str:
+    """JavaScript expression of the chart component whose figure title starts with ``title``."""
+    return ("[...document.querySelectorAll('.ots-chart')].map((el) => getElement(el))"
+            f".find((c) => c && c.figure && c.figure.title.startsWith({title!r}))")
+
+
+def test_noise_trace_linked_rows_zoom_and_split(page):
+    _type_in_terminal(page, "Nz = make_noise(5.0, bits=24, seed=2, duration=120, fs=200.0)\n")
+    page.wait_for_selector(".q-item__label:text-is('Nz')", timeout=15000)
+    _type_in_terminal(page, "noise(Nz)\n")
+    page.wait_for_selector(".q-tab:has-text('noise Nz')", timeout=20000)
+    chart = _chart(page, "Noise — Nz")
+    page.wait_for_function(f"() => {{ const c = {chart}; return c && c.plots.length === 1; }}",
+                           timeout=10000)
+    # A row of the results highlights its element of the chart, and the other way round
+    page.locator(".q-card[data-ots-ref='rms']").first.hover()
+    page.wait_for_function(f"() => {chart}.highlightRef === 'rms'", timeout=5000)
+    assert page.locator(".ots-linked").count() >= 4  # the key figure and its detail row
+    page.mouse.move(5, 500)
+    page.wait_for_function(f"() => {chart}.highlightRef === ''", timeout=5000)
+    # Ctrl + wheel: the visible window comes back at full resolution
+    before = page.evaluate(f"{chart}.plots[0].u.data[0].length")
+    box = page.evaluate(f"(() => {{ const r = {chart}.plots[0].u.over.getBoundingClientRect(); "
+                        "return [r.left + r.width / 2, r.top + r.height / 2]; })()")
+    page.mouse.move(*box)
+    page.keyboard.down("Control")
+    for _ in range(12):
+        page.mouse.wheel(0, -120)
+        time.sleep(0.05)
+    page.keyboard.up("Control")
+    page.wait_for_function(f"() => {chart}.plots[0].u.data[0].length > {before + 1000}",
+                           timeout=10000)
+    # Split: the next tab opens on the right side, and moves back with its menu
+    page.locator("button:has-text('vertical_split')").click()
+    page.locator(".q-item:has(.q-item__label:text-is('Nz'))").first.click()
+    right = page.locator(".ots-side").nth(1)
+    right.locator(".q-tab:has-text('Nz')").first.wait_for(timeout=10000)
+    right.locator(".q-tab:has-text('Nz')").first.click(button="right")
+    page.get_by_text("Move to the other side").click()
+    playwright.expect(right.locator(".q-tab")).to_have_count(0, timeout=10000)
+    playwright.expect(page.locator(".ots-side").nth(0).locator(".q-tab")).to_have_count(2)
+    right.locator("button:has-text('close')").click()  # one side again
+    page.wait_for_selector(".ots-work.ots-unsplit", timeout=5000)
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+def test_chat_formulas_and_edit_of_the_last_question(page):
+    import json
+
+    chats = PROJECT["path"] / ".onthesignal" / "chats"
+    chats.mkdir(parents=True, exist_ok=True)
+    text = ("The ENOB follows from the SINAD:\n\n$$\\mathrm{ENOB} = "
+            "\\frac{\\mathrm{SINAD} - 1.76}{6.02}$$\n\nwith \\(\\sigma\\) in counts.")
+    record = {"id": "20261121_070000_000001", "title": "ENOB formula", "created": "2026-11-21",
+              "provider": "test", "items": [
+                  {"kind": "user", "text": "How is the ENOB computed?", "attachments": []},
+                  {"kind": "assistant", "text": text, "thinking": ""}],
+              "transcript": [{"role": "user", "content": "How is the ENOB computed?"},
+                             {"role": "assistant", "content": text, "tool_calls": []}]}
+    (chats / f"{record['id']}.json").write_text(json.dumps(record), encoding="utf-8")
+    page.locator("button:has-text('history')").first.click()
+    page.locator(".q-item:has-text('ENOB formula') button:has-text('open_in_browser')").first \
+        .click()
+    page.wait_for_selector(".nicegui-markdown math", timeout=8000)
+    assert page.locator(".nicegui-markdown math").count() == 2  # display and inline
+    page.locator("button:has-text('edit_note')").click()
+    page.wait_for_selector("text=Editing the last question", timeout=5000)
+    box = page.get_by_placeholder("Ask the assistant", exact=False)
+    assert box.input_value() == "How is the ENOB computed?"
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+def test_sds_day_file_is_loaded_from_the_files_view(page):
+    """A file named as in an SDS archive (no .mseed extension) is loaded, not edited."""
+    shutil.copy(DATA, PROJECT["path"] / "data" / "XX.SDS.00.HHZ.D.2026.264")
+    page.locator(".q-item:has-text('data')").first.click()
+    page.locator(".q-item:has-text('XX.SDS.00.HHZ.D.2026.264')").first.click()
+    page.wait_for_selector(".q-item__label:has-text('XX.SDS.00.HHZ.D.2026.264')", timeout=20000)
+    assert page.locator("text=larger than the editor limit").count() == 0
     assert page.errors == []  # type: ignore[attr-defined]

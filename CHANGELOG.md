@@ -72,12 +72,25 @@ The project follows [Semantic Versioning](https://semver.org/).
   - comparison of results of the same analysis (Ctrl+click in the objects panel, or
     *Compare with…*): one figure where each signal keeps its color, and a table with one
     column per result;
+  - work area split in two sides, side by side (split button, Ctrl+\\, palette); a tab moves
+    to the other side from its menu (right click);
+  - rows of the results linked to the chart: hovering a row highlights the spur, a harmonic,
+    the study band, the ±RMS levels or the maximum of PSD − NLNM, and hovering the element
+    highlights its rows; the tables of the results sort numbers as numbers and are copied or
+    exported in CSV; result charts reload the visible window at full resolution after a zoom;
+  - `noise` shows the band-limited noise it measured, with its ±RMS levels and extremes;
+    `frequency` and `period` show the value of each period and the table of the periods;
+  - diff view (Monaco) for code proposed by the AI: *Review in <file>* after *Ask AI* in the
+    editor, and the scripts of `/ai_script`, written only when accepted;
+  - LaTeX formulas of the chat drawn in MathML (`latex2mathml`, in the `web` extra); the last
+    question can be edited and asked again;
   - batches (*Scripts* view, or `/batch` in the palette): analysis or script, file patterns
     of the project, generated parameter form, reading options, progress file by file, table
     of the results with the failures, CSV or JSON export, global Quarto report;
   - real-time dashboard (*Real time* view) of SeedLink streams: statistics of each channel in
     counts and physical unit, latency and gaps, trace of the last seconds, FFT and Welch PSD
     over a sliding window, miniSEED recording that can be switched on and off while running;
+  - ticks of linear chart axes with as many decimals as their spacing needs;
   - security without login: loopback interface by default, Host and Origin checks of HTTP and
     WebSocket requests, files confined to the project, `[web] code_execution = false`;
   - µPlot 1.6.32 and Monaco 0.56.0 vendored (offline), see `web/static/vendor/VENDOR.md`;
@@ -129,8 +142,24 @@ The project follows [Semantic Versioning](https://semver.org/).
   the console itself, reports its tool calls (`on_event`) and can be stopped (`cancel()`).
 - The console synchronizes its variables with the session before each command too, so that
   signals loaded by another interface are available at once.
+- `frequency` (method `zero_crossing`) also returns the frequency of each period (curve
+  `frequencies`), and `frequency` and `period` the table `periods` (start, duration and
+  frequency of each period, the first 10 000); `Result.to_text()` writes the first 50 rows of
+  a table and the number of the others.
+- `Assistant.generate_script` (`/ai_script`) shows the proposal to a host that has a
+  `review_handler` (diff view of the web interface) and writes the accepted text only.
 
 ### Fixed
+
+- Web interface: a miniSEED file without a miniSEED extension, as the day files of an SDS
+  archive (`XX.LORA.HA.BHE.D.2026.264`), was opened in the text editor (refused as larger than
+  the editor limit) instead of being loaded. Signal files are now recognized by their content
+  (`onthesignal.io.is_miniseed`, `is_signal_file`): click, upload, context menu, Ctrl+P and
+  batch patterns; `detect_format` reads them as miniSEED. Their title keeps the day of the
+  year (`XX.LORA.HA.BHE.D.2026.264` instead of `XX.LORA.HA.BHE.D.2026`).
+- Display of long records: the min/max envelope is computed by blocks of about 2 million
+  samples (a day at 250 Hz: 0.2 s instead of 0.7 s, about 250 MB of temporary memory instead
+  of 700 MB); the ticks of a counts axis are whole numbers (`-400000` instead of `-4.0e+5`).
 
 - `lnm`: the Peterson models were interpolated on periods sorted in decreasing order (as
   returned by ObsPy), which `numpy.interp` does not support. The NHNM curve was wrong (a

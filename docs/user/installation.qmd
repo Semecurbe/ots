@@ -20,7 +20,7 @@ cd onthesignal
 python3 -m venv .venv
 .venv/bin/pip install -e .            # core
 .venv/bin/pip install -e ".[ai]"      # + AI providers (anthropic, openai, ollama)
-.venv/bin/pip install -e ".[web]"     # + web interface (NiceGUI 4, Jedi): onthesignal web
+.venv/bin/pip install -e ".[web]"     # + web interface (NiceGUI 4, Jedi, ruff): onthesignal web
 .venv/bin/pip install -e ".[desktop]" # + its own window (PySide6, Qt WebEngine): onthesignal desktop
 .venv/bin/pip install -e ".[dev,docs]" # + tests and documentation tools
 ```

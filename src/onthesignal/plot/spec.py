@@ -8,6 +8,10 @@ bands, calculation conditions — and which results are displayed under it, with
 Colors are given as palette tokens resolved by the renderer for the active theme:
 ``series:0`` … ``series:7`` (categorical slots of :mod:`onthesignal.plot.style`), ``ink``,
 ``ink2``, ``muted``, ``axis`` and ``removed`` (red of the removed mains lines).
+
+Markers, bands and horizontal lines may carry a ``ref``: the rows of the results panel with
+the same reference (``ResultsSpec.links`` and ``row_refs``) are highlighted when the element
+is hovered, and the element when one of these rows is hovered (web specification §7.5).
 """
 
 from __future__ import annotations
@@ -64,9 +68,11 @@ class Marker:
     x: float
     y: float | None = None
     label: str = ""
-    #: removed_mains, harmonic, spur, fundamental, event
+    #: removed_mains, harmonic, spur, fundamental, maximum, extreme, event
     kind: str = "event"
     color: str = ""
+    #: Element linked to rows of the results panel (hover highlight).
+    ref: str = ""
 
 
 @dataclass
@@ -77,6 +83,7 @@ class Band:
     x1: float
     label: str = ""
     kind: str = "band"
+    ref: str = ""
 
 
 @dataclass
@@ -87,6 +94,7 @@ class HLine:
     dash: list[float] | None = None
     #: The automatic range of the ordinate includes the line (levels of the full scale).
     extend: bool = False
+    ref: str = ""
 
 
 @dataclass
@@ -135,11 +143,17 @@ class ResultsSpec:
     ``headline`` lists the key figures; ``groups`` the detail, as ``(title, keys)``;
     ``tables`` the keys of ``Result.tables`` to show. Values present in the result but
     listed nowhere are added to a last group, so that nothing is hidden.
+
+    ``links`` maps value keys to the ``ref`` of a figure element (``{"spur_frequency":
+    "spur"}``); ``row_refs`` gives, per table, the reference of each row as a format string
+    of its columns (``{"harmonics": "H{order}"}``).
     """
 
     headline: list[str] = field(default_factory=list)
     groups: list[tuple[str, list[str]]] = field(default_factory=list)
     tables: list[str] = field(default_factory=list)
+    links: dict[str, str] = field(default_factory=dict)
+    row_refs: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

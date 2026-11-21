@@ -7,6 +7,9 @@
 // view, "zoom" mode (drag a range) and "pan" mode (drag to move); Ctrl + wheel zooms around
 // the cursor, Shift + wheel (or a horizontal wheel) and the middle button move. In live mode
 // (real-time dashboard), new data re-scale the axes until the user zooms or moves.
+// Markers, bands and levels with a "ref" are linked to the rows of the results panel that
+// carry data-ots-for="<id of this chart>" and data-ots-ref="<ref>" (§7.5): hovering one
+// highlights the other, in the browser only.
 import uPlot from "onthesignal-uplot";
 import { loadResource } from "../../static/utils/resources.js";
 
@@ -47,6 +50,10 @@ body.body--dark .ots-tool { color: #c3c2b7; }
 body.body--dark .ots-tool:hover:not(:disabled) { background: #2c2c2a; color: #f0efec; }
 body.body--dark .ots-tool.active { background: #1c5cab; color: #f0efec; }
 body.body--dark .ots-toolbar .ots-sep { background: #383835; }
+.ots-linked { background: rgba(28, 92, 171, 0.14); border-radius: 3px; }
+body.body--dark .ots-linked { background: rgba(102, 157, 234, 0.24); }
+.ots-ref-label { text-decoration: underline dotted rgba(128, 128, 128, 0.7);
+  text-underline-offset: 3px; }
 `;
 
 function installToolbarCss() {
@@ -78,6 +85,30 @@ function fmtTick(v) {
   return String(Number(v.toPrecision(4)));
 }
 
+// Ticks of a linear axis: as many decimals as their step needs, so that close values
+// (7.29999 and 7.30001 Hz) keep distinct labels; whole numbers stay whole up to 1e9 (counts:
+// -400000, -402000…), beyond or below 1e-3 the labels are exponential.
+function stepDecimals(step) {
+  // Decimals needed to write the step exactly (negative for tens, hundreds…).
+  let d = -Math.floor(Math.log10(step));
+  while (d < 15 && Math.abs(Math.round(step * 10 ** d) - step * 10 ** d) > 1e-6 * step * 10 ** d) d++;
+  return d;
+}
+
+function linearTicks(vals) {
+  const finite = vals.filter((v) => v !== null && Number.isFinite(v));
+  if (finite.length < 2) return vals.map(fmtTick);
+  const step = Math.abs(finite[1] - finite[0]);
+  if (!(step > 0)) return vals.map(fmtTick);
+  const big = Math.max(...finite.map((v) => Math.abs(v)));
+  const d = stepDecimals(step);
+  if (big >= 1e9 || (big < 1e-3 && big > 0) || (big >= 1e5 && step < 1)) {
+    const digits = Math.min(Math.max(Math.floor(Math.log10(big)) + d, 1), 14);
+    return vals.map((v) => (v === null ? "" : v === 0 ? "0" : v.toExponential(digits)));
+  }
+  return vals.map((v) => (v === null ? "" : v.toFixed(Math.max(d, 0))));
+}
+
 function axisLabel(axis) {
   if (axis.time_origin) return `${axis.label || "Time"} (s from ${axis.time_origin})`;
   return axis.unit ? `${axis.label} (${axis.unit})` : axis.label;
@@ -88,7 +119,7 @@ function utc(originMs, seconds) {
   return d.toISOString().replace("T", " ").replace("Z", " UTC");
 }
 
-const MARKER_COLOR = { fundamental: 1, spur: 2, harmonic: 3 };
+const MARKER_COLOR = { fundamental: 1, spur: 2, harmonic: 3, maximum: 2, extreme: 2 };
 
 export default {
   template: `<div class="ots-chart" style="width:100%"></div>`,
@@ -114,6 +145,19 @@ export default {
       if (document.body.classList.contains("body--dark") !== this.dark) this.retheme();
     });
     this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    // Rows of the results panel linked to elements of this chart (hover highlight, §7.5).
+    this.highlightRef = "";
+    this.rowRef = "";
+    this.chartRef = "";
+    this.onRowOver = (e) => {
+      const row = e.target && e.target.closest
+        ? e.target.closest(`[data-ots-for="${this.$el.id}"]`) : null;
+      const ref = row ? row.getAttribute("data-ots-ref") || "" : "";
+      if (ref === this.rowRef) return;
+      this.rowRef = ref;
+      this.highlight(ref || this.chartRef);
+    };
+    document.addEventListener("mouseover", this.onRowOver);
     this.$nextTick().then(() => {
       loadResource(window.path_prefix + `${this.resourcePath}/uPlot.min.css`);
       this.build();
@@ -124,6 +168,7 @@ export default {
   unmounted() {
     if (this.observer) this.observer.disconnect();
     if (this.themeObserver) this.themeObserver.disconnect();
+    document.removeEventListener("mouseover", this.onRowOver);
     this.destroy();
   },
   watch: {
@@ -293,7 +338,8 @@ export default {
       for (const m of panel.markers || []) {
         if (!m.label || seen.has(m.kind) || m.kind === "event") continue;
         seen.add(m.kind);
-        const label = m.kind === "harmonic" ? "harmonics" : m.label;
+        const label = m.kind === "harmonic" ? "harmonics"
+          : m.kind === "extreme" ? "extremes (peak-to-peak)" : m.label;
         items.push([m.kind === "removed_mains" ? "dash" : "dot", this.markerColor(m), label]);
       }
       for (const h of panel.hlines || []) {
@@ -372,7 +418,7 @@ export default {
         ticks: { stroke: pal.axis, width: 1 },
         font: "11px sans-serif",
         labelFont: "12px sans-serif",
-        values: (u, vals) => vals.map(fmtTick),
+        values: (u, vals) => (a.scale === "log" ? vals.map(fmtTick) : linearTicks(vals)),
         size,
       });
       const yFixed = panel.y.min !== null && panel.y.min !== undefined && panel.y.max !== null && panel.y.max !== undefined;
@@ -425,9 +471,60 @@ export default {
           draw: [(u) => this.drawOverlays(u, panel)],
           setScale: [(u, key) => { if (key === "x") this.onScale(entry, u); }],
           setSelect: [(u) => this.onSelect(entry, u)],
-          setCursor: [(u) => this.readHeatmap(u, entry, origin)],
+          setCursor: [(u) => { this.readHeatmap(u, entry, origin); this.hoverElement(entry, u); }],
         },
       };
+    },
+    // ------------------------------------------------------------ linked rows (§7.5)
+    highlight(ref) {
+      ref = ref || "";
+      if (ref === this.highlightRef) return;
+      this.highlightRef = ref;
+      for (const el of document.querySelectorAll(`[data-ots-for="${this.$el.id}"]`)) {
+        el.classList.toggle("ots-linked", ref !== "" && el.getAttribute("data-ots-ref") === ref);
+      }
+      for (const p of this.plots || []) p.u.redraw(false);
+    },
+    hoverElement(entry, u) {
+      if (this.hoverPanel !== entry) return; // panels following the cursor of another one
+      const { left, top } = u.cursor;
+      const ref = left === null || left < 0 ? "" : this.elementAt(entry, u, left, top);
+      if (ref === this.chartRef) return;
+      this.chartRef = ref;
+      if (!this.rowRef) this.highlight(ref);
+    },
+    elementAt(entry, u, cx, cy) {
+      // Nearest linked element within a few pixels of the cursor (plotting area pixels).
+      let best = "";
+      let dist = 9;
+      const consider = (ref, d, limit) => {
+        if (ref && d < Math.min(dist, limit)) {
+          best = ref;
+          dist = d;
+        }
+      };
+      for (const m of entry.panel.markers || []) {
+        const x = u.valToPos(m.x, "x");
+        if (m.y === null || m.y === undefined) consider(m.ref, Math.abs(x - cx), 6);
+        else consider(m.ref, Math.hypot(x - cx, u.valToPos(m.y, "y") - cy), 9);
+      }
+      for (const h of entry.panel.hlines || []) consider(h.ref, Math.abs(u.valToPos(h.y, "y") - cy), 5);
+      for (const b of entry.panel.bands || []) {
+        for (const v of [b.x0, b.x1]) consider(b.ref, Math.abs(u.valToPos(v, "x") - cx), 5);
+      }
+      return best;
+    },
+    drawLabel(ctx, text, x, y, right) {
+      const r = uPlot.pxRatio;
+      ctx.font = `${11.5 * r}px sans-serif`;
+      const w = ctx.measureText(text).width + 8 * r;
+      const left = Math.min(Math.max(x + 6 * r, 2 * r), right - w - 2 * r);
+      ctx.fillStyle = this.pal.surface;
+      ctx.globalAlpha = 0.9;
+      ctx.fillRect(left, y - 13 * r, w, 17 * r);
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = this.pal.ink;
+      ctx.fillText(text, left + 4 * r, y);
     },
     heatmapImage(h, levels) {
       // Offscreen image of the grid, row 0 (lowest ordinate) at the bottom.
@@ -708,6 +805,12 @@ export default {
     },
     bindPanel(entry) {
       const u = entry.u;
+      u.over.addEventListener("mouseenter", () => { this.hoverPanel = entry; });
+      u.over.addEventListener("mouseleave", () => {
+        if (this.hoverPanel === entry) this.hoverPanel = null;
+        this.chartRef = "";
+        if (!this.rowRef) this.highlight("");
+      });
       u.over.addEventListener("mousedown", (e) => {
         if (e.button === 1 || (e.button === 0 && this.mode === "pan" && !e.shiftKey)) {
           this.selecting = false;
@@ -844,45 +947,74 @@ export default {
       ctx.beginPath();
       ctx.rect(left, top, u.bbox.width, u.bbox.height);
       ctx.clip();
+      const lit = (e) => e.ref && e.ref === this.highlightRef;
+      const labels = [];
+      for (const b of panel.bands || []) {
+        if (!lit(b)) continue;
+        ctx.strokeStyle = this.pal.ink2;
+        ctx.lineWidth = 1.5 * r;
+        ctx.setLineDash([]);
+        for (const v of [b.x0, b.x1]) {
+          const x = u.valToPos(v, "x", true);
+          if (!(x >= left && x <= right)) continue;
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, bottom);
+          ctx.stroke();
+        }
+        const x0 = this.clampX(u, u.valToPos(b.x0, "x", true));
+        labels.push([b.label || b.ref, x0, top + 16 * r]);
+      }
       for (const h of panel.hlines || []) {
         const y = u.valToPos(h.y, "y", true);
-        ctx.strokeStyle = this.color(h.color || "axis");
-        ctx.lineWidth = 1 * r;
-        ctx.setLineDash((h.dash || []).map((d) => d * r));
+        ctx.strokeStyle = lit(h) ? this.pal.ink : this.color(h.color || "axis");
+        ctx.lineWidth = (lit(h) ? 2.5 : 1) * r;
+        ctx.setLineDash(lit(h) ? [] : (h.dash || []).map((d) => d * r));
         ctx.beginPath();
         ctx.moveTo(left, y);
         ctx.lineTo(right, y);
         ctx.stroke();
+        if (lit(h) && h.label) labels.push([h.label, left + 4 * r, y - 6 * r]);
       }
       for (const m of panel.markers || []) {
         const x = u.valToPos(m.x, "x", true);
         if (!(x >= left && x <= right)) continue;
         const color = this.markerColor(m);
+        const on = lit(m);
         if (m.y === null || m.y === undefined) {
           ctx.strokeStyle = color;
-          ctx.lineWidth = 1 * r;
-          ctx.setLineDash([4 * r, 3 * r]);
+          ctx.lineWidth = (on ? 2.5 : 1) * r;
+          ctx.setLineDash(on ? [] : [4 * r, 3 * r]);
           ctx.beginPath();
           ctx.moveTo(x, top);
           ctx.lineTo(x, bottom);
           ctx.stroke();
+          if (on && m.label) labels.push([m.label, x, top + 16 * r]);
           continue;
         }
         const y = u.valToPos(m.y, "y", true);
         ctx.setLineDash([]);
+        if (on) { // halo around the highlighted point
+          ctx.fillStyle = this.color(m.color || "ink", 0.18);
+          ctx.beginPath();
+          ctx.arc(x, y, 11 * r, 0, 2 * Math.PI);
+          ctx.fill();
+        }
         ctx.fillStyle = color;
-        ctx.strokeStyle = this.pal.surface;
-        ctx.lineWidth = 1.5 * r;
+        ctx.strokeStyle = on ? this.pal.ink : this.pal.surface;
+        ctx.lineWidth = (on ? 2 : 1.5) * r;
         ctx.beginPath();
-        ctx.arc(x, y, 4 * r, 0, 2 * Math.PI);
+        ctx.arc(x, y, (on ? 6 : 4) * r, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
-        if (m.label && m.kind === "harmonic") {
+        if (on) labels.push([m.label || m.ref, x + 8 * r, y - 8 * r]);
+        else if (m.label && m.kind === "harmonic") {
           ctx.fillStyle = this.pal.ink2;
           ctx.font = `${11 * r}px sans-serif`;
           ctx.fillText(m.label, x + 5 * r, y - 6 * r);
         }
       }
+      for (const [text, x, y] of labels) this.drawLabel(ctx, text, x, Math.max(y, top + 14 * r), right);
       ctx.restore();
     },
     resize() {
