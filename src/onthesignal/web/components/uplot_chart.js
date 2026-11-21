@@ -43,6 +43,10 @@ const TOOLBAR_CSS = `
 .ots-tool:hover:not(:disabled) { background: #f0efec; color: #0b0b0b; }
 .ots-tool.active { background: #cde2fb; color: #184f95; }
 .ots-tool:disabled { opacity: 0.35; cursor: default; }
+body.body--dark .ots-tool { color: #c3c2b7; }
+body.body--dark .ots-tool:hover:not(:disabled) { background: #2c2c2a; color: #f0efec; }
+body.body--dark .ots-tool.active { background: #1c5cab; color: #f0efec; }
+body.body--dark .ots-toolbar .ots-sep { background: #383835; }
 `;
 
 function installToolbarCss() {
@@ -105,6 +109,11 @@ export default {
     this.future = [];
     this.gestureStart = null;
     installToolbarCss();
+    // The theme of the page changed (light / dark): redraw with its palette, same views.
+    this.themeObserver = new MutationObserver(() => {
+      if (document.body.classList.contains("body--dark") !== this.dark) this.retheme();
+    });
+    this.themeObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
     this.$nextTick().then(() => {
       loadResource(window.path_prefix + `${this.resourcePath}/uPlot.min.css`);
       this.build();
@@ -114,6 +123,7 @@ export default {
   },
   unmounted() {
     if (this.observer) this.observer.disconnect();
+    if (this.themeObserver) this.themeObserver.disconnect();
     this.destroy();
   },
   watch: {
@@ -122,7 +132,7 @@ export default {
   },
   methods: {
     color(token, alpha = 1) {
-      const p = this.palette || {};
+      const p = this.pal || {};
       let hex = token;
       if (!token) hex = p.ink2;
       else if (token.startsWith("series:")) hex = p.series[Number(token.slice(7)) % p.series.length];
@@ -143,6 +153,23 @@ export default {
       this.destroy();
       this.build();
     },
+    retheme() {
+      const view = this.captureView();
+      const history = this.history;
+      const future = this.future;
+      const mode = this.mode;
+      this.rebuild();
+      this.mode = mode;
+      this.history = history;
+      this.future = future;
+      if (view.length === this.plots.length) {
+        this.plots.forEach((p, i) => {
+          p.yRange = view[i].y ? { ...view[i].y } : null;
+          if (view[i].min !== null) p.u.setScale("x", { min: view[i].min, max: view[i].max });
+        });
+      }
+      this.updateToolbar();
+    },
     toData(panel, d) {
       d = d || (this.data || {})[panel.id] || { x: [], series: [] };
       const h = d.heatmap;
@@ -162,7 +189,10 @@ export default {
     },
     build() {
       const fig = this.figure;
-      if (!fig || !fig.panels || !fig.panels.length || !this.palette) return;
+      this.dark = document.body.classList.contains("body--dark");
+      const both = this.palette || {};
+      this.pal = both.light ? both[this.dark ? "dark" : "light"] : both;
+      if (!fig || !fig.panels || !fig.panels.length || !this.pal) return;
       const weights = fig.panels.reduce((a, p) => a + (p.height || 1), 0);
       const width = Math.max(320, this.$el.clientWidth || 800);
       this.$el.appendChild(this.buildToolbar());
@@ -173,7 +203,7 @@ export default {
         if (panel.conditions && panel.conditions.length) {
           const c = document.createElement("div");
           c.className = "ots-conditions";
-          c.style.cssText = `white-space:pre-line;font-size:11px;color:${this.palette.ink2};margin:2px 0 2px 64px`;
+          c.style.cssText = `white-space:pre-line;font-size:11px;color:${this.pal.ink2};margin:2px 0 2px 64px`;
           c.textContent = panel.conditions.join("\n");
           wrap.appendChild(c);
         }
@@ -189,7 +219,7 @@ export default {
           entry.image = this.heatmapImage(heat, entry.levels);
           entry.readout = document.createElement("div");
           entry.readout.className = "ots-readout";
-          entry.readout.style.cssText = `font-size:11.5px;color:${this.palette.ink2};margin:2px 0 0 64px;min-height:16px`;
+          entry.readout.style.cssText = `font-size:11.5px;color:${this.pal.ink2};margin:2px 0 0 64px;min-height:16px`;
           entry.readout.textContent = "Move the cursor over the map to read the time, the frequency and the level";
           wrap.appendChild(entry.readout);
           wrap.appendChild(this.colorBar(heat));
@@ -239,8 +269,8 @@ export default {
         forward: button("arrow_forward", "Next view", () => this.stepView(1)),
       };
       separator();
-      this.tools.zoom = button("zoom_in", "Zoom: drag over a range to zoom in (Ctrl + wheel also zooms)",
-        () => this.setMode("zoom"));
+      this.tools.zoom = button("zoom_in", "Zoom: drag a rectangle to zoom in on it, as in matplotlib " +
+        "(a flat drag zooms the abscissa only; Ctrl + wheel zooms too)", () => this.setMode("zoom"));
       this.tools.pan = button("open_with", "Move: drag to move along the axis (also the middle " +
         "button, Shift + wheel)", () => this.setMode("pan"));
       return bar;
@@ -266,19 +296,24 @@ export default {
         const label = m.kind === "harmonic" ? "harmonics" : m.label;
         items.push([m.kind === "removed_mains" ? "dash" : "dot", this.markerColor(m), label]);
       }
+      for (const h of panel.hlines || []) {
+        if (!h.label || seen.has("hline:" + h.label)) continue;
+        seen.add("hline:" + h.label);
+        items.push(["dash", this.color(h.color || "axis"), h.label]);
+      }
       for (const b of panel.bands || []) {
         if (seen.has("band:" + b.kind)) continue;
         seen.add("band:" + b.kind);
-        items.push(["box", b.kind === "gap" ? "rgba(137,135,129,0.35)" : this.palette.wash, b.label || b.kind]);
+        items.push(["box", b.kind === "gap" ? "rgba(137,135,129,0.35)" : this.pal.wash, b.label || b.kind]);
       }
       if (!items.length) return null;
       const row = document.createElement("div");
-      row.style.cssText = `font-size:11px;color:${this.palette.ink2};margin:0 0 4px 64px;display:flex;gap:14px;flex-wrap:wrap`;
+      row.style.cssText = `font-size:11px;color:${this.pal.ink2};margin:0 0 4px 64px;display:flex;gap:14px;flex-wrap:wrap`;
       for (const [shape, color, label] of items) {
         const sw = document.createElement("span");
         if (shape === "dash") sw.style.cssText = `display:inline-block;width:16px;border-top:2px dashed ${color};vertical-align:middle;margin-right:4px`;
         else if (shape === "dot") sw.style.cssText = `display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:4px`;
-        else sw.style.cssText = `display:inline-block;width:14px;height:10px;background:${color};border:1px solid ${this.palette.axis};margin-right:4px`;
+        else sw.style.cssText = `display:inline-block;width:14px;height:10px;background:${color};border:1px solid ${this.pal.axis};margin-right:4px`;
         const item = document.createElement("span");
         item.appendChild(sw);
         item.appendChild(document.createTextNode(label));
@@ -288,12 +323,12 @@ export default {
     },
     markerColor(m) {
       if (m.color) return this.color(m.color);
-      if (m.kind === "removed_mains") return this.palette.removed;
+      if (m.kind === "removed_mains") return this.pal.removed;
       if (m.kind in MARKER_COLOR) return this.color("series:" + MARKER_COLOR[m.kind]);
-      return this.palette.ink2;
+      return this.pal.ink2;
     },
     options(panel, width, height, entry) {
-      const pal = this.palette;
+      const pal = this.pal;
       const xlog = panel.x.scale === "log";
       const ylog = panel.y.scale === "log";
       const origin = panel.x.time_origin ? Date.parse(panel.x.time_origin) : null;
@@ -359,14 +394,30 @@ export default {
           y: {
             distr: ylog ? 3 : 1,
             log: 10,
-            range: yFixed ? () => [panel.y.min, panel.y.max] : undefined,
+            // A range chosen by the user (rectangle zoom, vertical move) holds until the full
+            // view; otherwise the fixed bounds of the layout, or the visible data.
+            range: (u, mn, mx) => {
+              if (entry.yRange) return [entry.yRange.min, entry.yRange.max];
+              if (yFixed) return [panel.y.min, panel.y.max];
+              if (mn === null || mx === null || !Number.isFinite(mn) || !Number.isFinite(mx)) {
+                return ylog ? [1, 10] : [0, 1];
+              }
+              for (const h of panel.hlines || []) { // levels that must stay visible
+                if (h.extend && Number.isFinite(h.y)) {
+                  mn = Math.min(mn, h.y);
+                  mx = Math.max(mx, h.y);
+                }
+              }
+              return ylog ? uPlot.rangeLog(Math.max(mn, 1e-300), Math.max(mx, 1e-300), 10, false)
+                : uPlot.rangeNum(mn, mx, 0.1, true);
+            },
           },
         },
         axes: [axis(panel.x, 44), axis(panel.y, 70)],
         legend: { show: !entry.heat, live: true },
         cursor: {
           sync: panel.sync ? { key: this.syncKey + ":" + panel.sync, setSeries: false } : undefined,
-          drag: { x: true, y: false, setScale: true },
+          drag: { x: true, y: true, uni: 30, setScale: true },
           bind: { dblclick: () => null },
         },
         hooks: {
@@ -385,7 +436,7 @@ export default {
       canvas.height = Math.max(1, h.rows);
       const ctx = canvas.getContext("2d");
       const img = ctx.createImageData(canvas.width, canvas.height);
-      const lut = ramp(h.colors);
+      const lut = ramp(this.dark ? [...h.colors].reverse() : h.colors);
       const span = h.zmax - h.zmin;
       const range = h.vmax - h.vmin || 1;
       for (let r = 0; r < h.rows; r++) {
@@ -408,10 +459,10 @@ export default {
     },
     colorBar(h) {
       const row = document.createElement("div");
-      row.style.cssText = `display:flex;align-items:center;gap:8px;font-size:11px;color:${this.palette.ink2};margin:4px 0 2px 64px`;
+      row.style.cssText = `display:flex;align-items:center;gap:8px;font-size:11px;color:${this.pal.ink2};margin:4px 0 2px 64px`;
       const bar = document.createElement("span");
-      bar.style.cssText = `display:inline-block;width:220px;height:10px;border:1px solid ${this.palette.axis};` +
-        `background:linear-gradient(to right, ${h.colors.join(", ")})`;
+      bar.style.cssText = `display:inline-block;width:220px;height:10px;border:1px solid ${this.pal.axis};` +
+        `background:linear-gradient(to right, ${(this.dark ? [...h.colors].reverse() : h.colors).join(", ")})`;
       const lo = document.createElement("span");
       lo.textContent = fmt(h.vmin);
       const hi = document.createElement("span");
@@ -480,16 +531,47 @@ export default {
     },
     // ------------------------------------------------------------- views and history
     captureView() {
-      return this.plots.map((p) => ({ min: p.u.scales.x.min, max: p.u.scales.x.max }));
+      return this.plots.map((p) => ({
+        min: p.u.scales.x.min,
+        max: p.u.scales.x.max,
+        y: p.yRange ? { ...p.yRange } : null,
+      }));
+    },
+    sameRange(v, w) {
+      if (!v || !w) return v === w;
+      if (v.min === null || w.min === null) return v.min === w.min && v.max === w.max;
+      const tol = 1e-9 * Math.max(Math.abs(v.max - v.min), Math.abs(v.max), 1e-300);
+      return Math.abs(v.min - w.min) <= tol && Math.abs(v.max - w.max) <= tol;
     },
     sameView(a, b) {
       if (!a || !b || a.length !== b.length) return false;
-      return a.every((v, i) => {
-        const w = b[i];
-        if (v.min === null || w.min === null) return v.min === w.min && v.max === w.max;
-        const tol = 1e-9 * Math.max(Math.abs(v.max - v.min), Math.abs(v.max), 1e-300);
-        return Math.abs(v.min - w.min) <= tol && Math.abs(v.max - w.max) <= tol;
-      });
+      return a.every((v, i) => this.sameRange(v, b[i]) && this.sameRange(v.y || null, b[i].y || null));
+    },
+    visibleRange(entry) {
+      // Extent of the data in the visible abscissa (to give the ordinate back to the data).
+      const u = entry.u;
+      const x = u.data[0] || [];
+      if (!x.length || u.scales.x.min === null) return { min: null, max: null };
+      const i0 = Math.max(0, u.valToIdx(u.scales.x.min) - 1);
+      const i1 = Math.min(x.length - 1, u.valToIdx(u.scales.x.max) + 1);
+      const log = entry.panel.y.scale === "log";
+      let min = Infinity;
+      let max = -Infinity;
+      for (let s = 1; s < u.data.length; s++) {
+        const ys = u.data[s] || [];
+        for (let i = i0; i <= i1; i++) {
+          const v = ys[i];
+          if (v === null || v === undefined || !Number.isFinite(v) || (log && v <= 0)) continue;
+          if (v < min) min = v;
+          if (v > max) max = v;
+        }
+      }
+      return min <= max ? { min, max } : { min: null, max: null };
+    },
+    setYRange(entry, range) {
+      // range null: the ordinate follows the visible data (or the bounds of the layout) again.
+      entry.yRange = range ? { ...range } : null;
+      entry.u.setScale("y", range || this.visibleRange(entry));
     },
     remember(view) {
       // Previous view of a completed gesture: Back returns to it, Forward is cleared.
@@ -513,10 +595,15 @@ export default {
       this.plots.forEach((p, i) => {
         const v = view ? view[i] : null;
         p.zoomed = !follow;
+        p.yRange = v && v.y ? { ...v.y } : null;
         if (!v || v.min === null || (follow && (this.live || p.initial.min === null))) {
           p.u.setData(p.u.data, true);
         } else {
-          p.u.setScale("x", v);
+          const sameX = this.sameRange({ min: p.u.scales.x.min, max: p.u.scales.x.max }, v);
+          p.u.setScale("x", { min: v.min, max: v.max });
+          // A new abscissa re-ranges the ordinate itself (the range function honours yRange);
+          // with the same abscissa, the ordinate is set here.
+          if (p.yRange || sameX) this.setYRange(p, p.yRange);
         }
       });
       if (this.zoomable && this.plots.length) {
@@ -527,7 +614,8 @@ export default {
     },
     home() {
       const before = this.captureView();
-      const full = this.plots.map((p) => (this.live || p.initial.min === null ? null : p.initial));
+      const full = this.plots.map((p) => (this.live || p.initial.min === null ? null
+        : { min: p.initial.min, max: p.initial.max, y: null }));
       this.applyView(full, true);
       if (!this.sameView(before, full.map((v, i) => v || before[i]))) {
         this.history.push(before);
@@ -571,21 +659,44 @@ export default {
       }
       return { min: back(lo), max: back(hi) };
     },
+    shiftedY(entry, range, pixels) {
+      // Ordinate range moved by a number of pixels (upwards positive).
+      const log = entry.panel.y.scale === "log";
+      const fwd = log ? (v) => Math.log10(Math.max(v, 1e-300)) : (v) => v;
+      const back = log ? (v) => 10 ** v : (v) => v;
+      const height = entry.u.over.clientHeight || 1;
+      const lo = fwd(range.min);
+      const hi = fwd(range.max);
+      const delta = (pixels / height) * (hi - lo);
+      return { min: back(lo + delta), max: back(hi + delta) };
+    },
     startPan(entry, e) {
       const u = entry.u;
       const min = u.scales.x.min;
       const max = u.scales.x.max;
       if (min === null || max === null) return;
+      const yStart = entry.yRange ? { ...entry.yRange } : null;
+      const y0 = e.clientY;
       e.preventDefault(); // no text selection, no autoscroll of the middle button
-      for (const p of this.plots) p.u.cursor.drag.x = false; // no zoom selection meanwhile
+      for (const p of this.plots) { // no zoom selection of uPlot meanwhile
+        p.u.cursor.drag.x = false;
+        p.u.cursor.drag.y = false;
+      }
       this.beginGesture();
       this.userZoom = true;
       u.over.style.cursor = "grabbing";
       const x0 = e.clientX;
-      const move = (ev) => u.setScale("x", this.shifted(entry, min, max, ev.clientX - x0));
+      const move = (ev) => {
+        u.setScale("x", this.shifted(entry, min, max, ev.clientX - x0));
+        // As in matplotlib, a zoomed ordinate moves with the mouse too.
+        if (yStart) this.setYRange(entry, this.shiftedY(entry, yStart, ev.clientY - y0));
+      };
       const up = () => {
         window.removeEventListener("mousemove", move);
-        for (const p of this.plots) p.u.cursor.drag.x = true;
+        for (const p of this.plots) {
+          p.u.cursor.drag.x = true;
+          p.u.cursor.drag.y = true;
+        }
         setTimeout(() => {
           this.userZoom = false;
           this.endGesture();
@@ -606,7 +717,11 @@ export default {
         if (e.button !== 0) return;
         this.selecting = e.shiftKey;
         u.cursor.drag.setScale = !e.shiftKey;
-        if (e.shiftKey) return; // window selection for an analysis, not a zoom
+        u.cursor.drag.y = !e.shiftKey; // Shift: a time window, never a rectangle
+        if (e.shiftKey) {
+          window.addEventListener("mouseup", () => { u.cursor.drag.y = true; }, { once: true });
+          return; // window selection for an analysis, not a zoom
+        }
         // A scale change until the button is released is a zoom made by the user.
         this.userZoom = true;
         this.beginGesture();
@@ -684,7 +799,20 @@ export default {
       this.zoomTimer = setTimeout(() => this.$emit("zoom", { panel: entry.panel.id, ...range }), 150);
     },
     onSelect(entry, u) {
-      if (!this.selecting || u.select.width <= 0) return;
+      if (!this.selecting) {
+        // Zoom: a rectangle that does not span the whole height also sets the ordinate.
+        const height = u.over.clientHeight;
+        const sel = u.select;
+        if (sel.height > 0 && (sel.top > 0.5 || sel.height < height - 1)) {
+          const lo = u.posToVal(sel.top + sel.height, "y");
+          const hi = u.posToVal(sel.top, "y");
+          if (Number.isFinite(lo) && Number.isFinite(hi) && hi > lo) {
+            entry.yRange = { min: lo, max: hi };
+          }
+        }
+        return;
+      }
+      if (u.select.width <= 0) return;
       const min = u.posToVal(u.select.left, "x");
       const max = u.posToVal(u.select.left + u.select.width, "x");
       this.$emit("select", { panel: entry.panel.id, min, max });
@@ -700,7 +828,7 @@ export default {
         const x0 = this.clampX(u, u.valToPos(b.x0, "x", true));
         const x1 = this.clampX(u, u.valToPos(b.x1, "x", true));
         if (!(x1 > x0)) continue;
-        ctx.fillStyle = b.kind === "gap" ? "rgba(137,135,129,0.22)" : this.palette.wash;
+        ctx.fillStyle = b.kind === "gap" ? "rgba(137,135,129,0.22)" : this.pal.wash;
         ctx.fillRect(x0, u.bbox.top, x1 - x0, u.bbox.height);
       }
       ctx.restore();
@@ -743,14 +871,14 @@ export default {
         const y = u.valToPos(m.y, "y", true);
         ctx.setLineDash([]);
         ctx.fillStyle = color;
-        ctx.strokeStyle = this.palette.surface;
+        ctx.strokeStyle = this.pal.surface;
         ctx.lineWidth = 1.5 * r;
         ctx.beginPath();
         ctx.arc(x, y, 4 * r, 0, 2 * Math.PI);
         ctx.fill();
         ctx.stroke();
         if (m.label && m.kind === "harmonic") {
-          ctx.fillStyle = this.palette.ink2;
+          ctx.fillStyle = this.pal.ink2;
           ctx.font = `${11 * r}px sans-serif`;
           ctx.fillText(m.label, x + 5 * r, y - 6 * r);
         }
@@ -787,14 +915,14 @@ export default {
       canvas.width = width;
       canvas.height = titleH + heights.reduce((a, b) => a + b, 0);
       const ctx = canvas.getContext("2d");
-      ctx.fillStyle = this.palette.surface;
+      ctx.fillStyle = this.pal.surface;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = this.palette.ink;
+      ctx.fillStyle = this.pal.ink;
       ctx.font = `${14 * r}px sans-serif`;
       ctx.fillText((this.figure && this.figure.title) || "", 10 * r, 19 * r);
       let y = titleH;
       plots.forEach((p, i) => {
-        ctx.fillStyle = this.palette.ink2;
+        ctx.fillStyle = this.pal.ink2;
         ctx.font = `${11 * r}px sans-serif`;
         for (const line of p.panel.conditions || []) {
           y += 14 * r;

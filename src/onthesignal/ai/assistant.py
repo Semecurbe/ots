@@ -13,7 +13,7 @@ from typing import Any
 from ..core.errors import ParameterError
 from ..core.registry import commands
 from .context import system_prompt
-from .providers import LLMProvider, Reply, ToolCall, make_provider
+from .providers import LLMProvider, Reply, RequestCancelled, ToolCall, make_provider
 from .tools import Tool, build_tools
 
 MAX_ROUNDS = 8
@@ -45,8 +45,10 @@ class Assistant:
     provider : LLMProvider, optional
         Model provider (from the ``[ai]`` configuration by default).
     on_event : callable, optional
-        ``on_event(event, data)`` with ``event`` in ``"reply"``, ``"tool_start"``,
-        ``"tool_end"`` and ``"done"`` (tool-call cards of the web chat).
+        ``on_event(event, data)`` with ``event`` in ``"delta"`` (pieces of a streamed answer:
+        ``kind`` ``text`` or ``thinking``, ``text``), ``"reply"`` (``text``, ``thinking``),
+        ``"usage"`` (``input`` and ``output`` tokens), ``"tool_start"``, ``"tool_end"`` and
+        ``"done"`` (web chat). With it, the providers that can stream do so.
     """
 
     def __init__(self, host: Any, provider: LLMProvider | None = None,
@@ -81,17 +83,24 @@ class Assistant:
         specs = [t.spec for t in self.tools.values()] if self.provider.supports_tools else []
         answer = ""
         for _ in range(MAX_ROUNDS):
-            reply: Reply = self.provider.chat(system, self.transcript, specs)
+            try:
+                reply: Reply = self._chat(system, specs)
+            except RequestCancelled:
+                self.cancelled = True
             if self.cancelled:
-                self.transcript.pop()  # the unanswered question is withdrawn
+                if self.transcript and self.transcript[-1]["role"] == "user":
+                    self.transcript.pop()  # the unanswered question is withdrawn
                 self.host.warning("Request stopped")
                 break
+            if reply.usage:
+                self._emit("usage", **reply.usage)
             self.transcript.append({"role": "assistant", "content": reply.text,
                                     "tool_calls": reply.tool_calls})
-            if reply.text:
-                answer = reply.text
-                self.host.markdown(reply.text)
-                self._emit("reply", text=reply.text)
+            if reply.text or reply.thinking:
+                answer = reply.text or answer
+                if reply.text:
+                    self.host.markdown(reply.text)
+                self._emit("reply", text=reply.text, thinking=reply.thinking)
             if not reply.tool_calls:
                 if not self.provider.supports_tools:
                     self._offer_code(reply.text)
@@ -114,13 +123,30 @@ class Assistant:
         self._emit("done", text=answer)
         return answer
 
+    def _chat(self, system: str, specs: list) -> Reply:
+        """One model call; streamed when the provider can and an event handler listens."""
+        if self.on_event is None or not getattr(self.provider, "supports_streaming", False):
+            return self.provider.chat(system, self.transcript, specs)
+
+        def delta(kind: str, text: str) -> None:
+            if self.cancelled:
+                raise RequestCancelled
+            self._emit("delta", kind=kind, text=text)
+
+        return self.provider.chat(system, self.transcript, specs,  # type: ignore[call-arg]
+                                  on_delta=delta)
+
     def _allowed(self, call: ToolCall, tool: Tool) -> bool:
         auto = str(self.session.config.get("ai.auto_execute", "read_only")).lower()
         if not tool.confirm and auto == "read_only":
             return True
         args = ", ".join(f"{k}={v!r}" for k, v in call.arguments.items())
-        return bool(self.host.confirm(f"The assistant wants to run {call.name}({args}). Allow?",
-                                      details=str(call.arguments.get("code", ""))))
+        question = f"The assistant wants to run {call.name}({args}). Allow?"
+        details = str(call.arguments.get("code", ""))
+        try:
+            return bool(self.host.confirm(question, details=details, key=call.name))
+        except TypeError:  # a host without the key argument
+            return bool(self.host.confirm(question, details=details))
 
     def execute(self, call: ToolCall) -> dict:
         """Run one tool call under the confirmation policy; errors are returned to the model."""

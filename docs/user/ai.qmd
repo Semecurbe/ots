@@ -30,6 +30,15 @@ is the context the model was trained for (262 144 tokens for Qwen3.8); a larger 
 silently reduced to it. The `ollama.md` file at the root of the repository describes the
 setup with a GB10 and with small local models.
 
+### Profiles
+
+Several models can be declared as named profiles (`[[ai.profiles]]`, see
+[Configuration](configuration.qmd)): for instance the Qwen3.8 of a GB10 and Claude. `[ai]
+profile` chooses the default one; `/model <profile>` (console) or the *Profile* list of the web
+chat changes it for the session. The web chat checks that the profile can be used: Ollama
+server reachable and model present (`ollama pull` is proposed otherwise), API key present in
+the environment for Claude and ChatGPT.
+
 ## Use
 
 | Command | Effect |

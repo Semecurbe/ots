@@ -119,6 +119,9 @@ class Signal:
             raise ParameterError(f"Sampling rate must be positive, got {sampling_rate}")
         self.metadata: dict = dict(metadata or {})
         self.metadata.setdefault("dtype", str(arr.dtype))
+        #: Incremented whenever the samples are replaced or modified (views follow it).
+        self.data_version = 0
+        self.history: list[str] = list(history or [])
         self.data = np.array(arr, dtype=np.float64)
         self.sampling_rate = float(sampling_rate)
         self.starttime = to_utc(starttime) if starttime is not None else UTCDateTime(0)
@@ -133,10 +136,41 @@ class Signal:
         self.title = title
         self.source = str(source)
         self.sha256 = str(sha256)
-        self.history: list[str] = list(history or [])
         self.gaps: list[dict] = list(gaps or [])
 
     # ------------------------------------------------------------------ attributes
+    @property
+    def data(self) -> np.ndarray:
+        """Samples in counts (``float64``).
+
+        They may be replaced, e.g. ``S4.data = S4.data + 100`` to shift a signal by 100
+        counts: the change is noted in the history (``samples modified``) and the views of the
+        web interface are updated. ``S4 + 100`` gives a shifted copy instead.
+        """
+        return self._data
+
+    @data.setter
+    def data(self, value: Any) -> None:
+        arr = np.asarray(value, dtype=np.float64)
+        if arr.ndim != 1:
+            raise ParameterError("Signal data must be a one-dimensional array")
+        if arr.size == 0:
+            raise ParameterError("Signal data is empty")
+        replacing = hasattr(self, "_data")
+        self._data = arr
+        if replacing:
+            self.mark_modified()
+
+    def mark_modified(self, note: str = "samples modified") -> None:
+        """Record a change of the samples made outside the methods of the signal.
+
+        Called when ``data`` is assigned, and by the console when the samples were changed in
+        place (``S4.data[:100] = 0``).
+        """
+        self.data_version += 1
+        if not self.history or self.history[-1] != note:
+            self.history.append(note)
+
     @property
     def title(self) -> str:
         """Human-readable title (file name without extension for loaded signals)."""
@@ -537,30 +571,50 @@ class Signal:
         """Sample-wise difference on the common time window."""
         return self._combine(other, np.subtract, "−", method)
 
+    def offset(self, value: float) -> Signal:
+        """Copy shifted by ``value`` counts (``S + value`` and ``S - value`` do the same)."""
+        value = float(value)
+        if not np.isfinite(value):
+            raise ParameterError(f"The offset must be finite, got {value}")
+        sign = "+" if value >= 0 else "−"
+        return self._derive(self.data + value, f"offset {sign}{fmt_num(abs(value))} counts")
+
     def __add__(self, other: Any) -> Signal:
         if isinstance(other, Signal):
             return self.add(other)
+        if _is_number(other):
+            return self.offset(other)
         return NotImplemented
 
     def __radd__(self, other: Any) -> Signal:
-        if isinstance(other, (int, float)) and other == 0:  # supports sum([S1, S2])
+        if _is_number(other) and other == 0:  # supports sum([S1, S2])
             return self.copy()
+        if _is_number(other):
+            return self.offset(other)
         return NotImplemented
 
     def __sub__(self, other: Any) -> Signal:
         if isinstance(other, Signal):
             return self.subtract(other)
+        if _is_number(other):
+            return self.offset(-float(other))
+        return NotImplemented
+
+    def __rsub__(self, other: Any) -> Signal:
+        if _is_number(other):
+            return self._derive(float(other) - self.data,
+                                f"{fmt_num(float(other))} counts − signal")
         return NotImplemented
 
     def __mul__(self, k: Any) -> Signal:
-        if isinstance(k, (int, float, np.integer, np.floating)) and not isinstance(k, bool):
+        if _is_number(k):
             return self._derive(self.data * float(k), f"amplitude × {fmt_num(float(k))}")
         return NotImplemented
 
     __rmul__ = __mul__
 
     def __truediv__(self, k: Any) -> Signal:
-        if isinstance(k, (int, float, np.integer, np.floating)) and not isinstance(k, bool):
+        if _is_number(k):
             if k == 0:
                 raise ZeroDivisionError("Cannot divide a signal by zero")
             return self._derive(self.data / float(k), f"amplitude ÷ {fmt_num(float(k))}")
@@ -568,6 +622,12 @@ class Signal:
 
     def __neg__(self) -> Signal:
         return self._derive(-self.data, "polarity inverted")
+
+
+def _is_number(value: Any) -> bool:
+    """Real number usable as a gain or an offset (booleans excluded)."""
+    return isinstance(value, (int, float, np.integer, np.floating)) and not isinstance(
+        value, (bool, np.bool_))
 
 
 def _shortcut(name: str) -> Callable:

@@ -11,6 +11,7 @@ title: "Installation"
 - For the AI assistant: an API key (Claude, ChatGPT) or a local [Ollama](https://ollama.com)
   server.
 - For the web interface: a recent browser (Firefox, Chrome or Edge ≥ 121, Safari ≥ 17.2).
+- Or nothing at all: the AppImage (below) contains Python, onthesignal and its web engine.
 
 ## Install
 
@@ -20,6 +21,7 @@ python3 -m venv .venv
 .venv/bin/pip install -e .            # core
 .venv/bin/pip install -e ".[ai]"      # + AI providers (anthropic, openai, ollama)
 .venv/bin/pip install -e ".[web]"     # + web interface (NiceGUI 4, Jedi): onthesignal web
+.venv/bin/pip install -e ".[desktop]" # + its own window (PySide6, Qt WebEngine): onthesignal desktop
 .venv/bin/pip install -e ".[dev,docs]" # + tests and documentation tools
 ```
 
@@ -32,7 +34,38 @@ The `onthesignal` command is then available in `.venv/bin/`.
 .venv/bin/onthesignal data/*.mseed        # console with files loaded as S1, S2...
 .venv/bin/onthesignal --version
 .venv/bin/onthesignal web                 # web interface on http://127.0.0.1:8080
+.venv/bin/onthesignal desktop             # the same in its own window, like an application
 ```
 
 Type `/` to open the command menu, `/help` for the list, `/quit` (or Ctrl+D) to leave. The web
 interface is described in [Web interface](web.qmd).
+
+## AppImage
+
+The AppImage is a single file that runs on Linux without installing anything: it contains
+Python, onthesignal with its web, AI and desktop dependencies, and the Chromium engine of Qt
+WebEngine. It opens the web interface in its own window (`onthesignal desktop`).
+
+```bash
+chmod +x onthesignal-0.1.0-x86_64.AppImage
+./onthesignal-0.1.0-x86_64.AppImage                    # window; asks for the project folder
+./onthesignal-0.1.0-x86_64.AppImage --project ~/bench3 data/*.mseed
+./onthesignal-0.1.0-x86_64.AppImage --console          # the console
+./onthesignal-0.1.0-x86_64.AppImage web --port 8090    # the server only (onthesignal web)
+```
+
+Launched from the menu of applications, it proposes the last project folder; launched from a
+terminal, the project is the current folder. Quarto is not included: install it to render the
+reports. To build the AppImage again (about 400 MB, 600 MB downloaded):
+
+```bash
+pip install python-appimage
+python packaging/appimage/build_appimage.py      # writes dist/onthesignal-<version>-x86_64.AppImage
+```
+
+| Problem | Solution |
+| --- | --- |
+| `Cannot mount AppImage, please check your FUSE setup` | install FUSE (`fuse3`), or run with `--appimage-extract-and-run` |
+| Same message after `fusermount3: file descriptor 5 is not a socket` | the terminal belongs to an application installed as a snap (the integrated terminal of VS Code, for example): the AppArmor profile of `fusermount3` (Ubuntu 25.10 and later) refuses it. Launch the AppImage from the menu of applications, the file manager or another terminal, or with `--appimage-extract-and-run` |
+| The window stays blank | the sandbox of Chromium is refused by the system: `QTWEBENGINE_DISABLE_SANDBOX=1 ./onthesignal-…AppImage` |
+| Messages of the server | `.onthesignal/logs/desktop-server.log` in the project |

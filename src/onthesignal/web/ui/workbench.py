@@ -71,7 +71,52 @@ body { font-size: 13px; }
 .q-drawer .q-splitter, .q-drawer .q-splitter__panel { min-width: 0; max-width: 100%; }
 .q-item__section--main { min-width: 0; }
 .ots-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Dark theme (§4.8): surfaces and inks of the validated dark palette (plot.style.DARK).
+   In the "overrides" layer: Quasar's colour classes are !important rules of a later
+   layer, and for !important rules the earlier layer wins. */
+@layer overrides {
+  body.body--dark { background: #0d0d0d; color: #f0efec; }
+  body.body--dark .bg-white { background: #1a1a19 !important; }
+  body.body--dark .bg-grey-1 { background: #141413 !important; }
+  body.body--dark .bg-grey-2 { background: #232321 !important; }
+  body.body--dark .bg-blue-1 { background: #1b2a3e !important; }
+  body.body--dark .bg-amber-1 { background: #3a2f12 !important; }
+  body.body--dark .text-grey-5, body.body--dark .text-grey-6,
+  body.body--dark .text-grey-7 { color: #898781 !important; }
+  body.body--dark .text-grey-8, body.body--dark .text-grey-9,
+  body.body--dark .text-grey-10 { color: #c3c2b7 !important; }
+  body.body--dark .border-b, body.body--dark .border,
+  body.body--dark .q-header { border-color: #2c2c2a !important; }
+  body.body--dark .ots-term .xterm .xterm-viewport { background-color: #1a1a19 !important; }
+  body.body--dark .nicegui-code { background: #232321; }
+}
 """
+
+#: Terminal colors of the two themes (xterm.js); the page script switches them.
+TERMINAL_THEMES = {
+    "light": {"background": "#fcfcfb", "foreground": "#0b0b0b", "cursor": "#2a78d6",
+              "selectionBackground": "#cde2fb", "brightBlack": "#898781"},
+    "dark": {"background": "#1a1a19", "foreground": "#f0efec", "cursor": "#3987e5",
+             "selectionBackground": "#184f95", "brightBlack": "#898781"},
+}
+THEME_SCRIPT = """<script>
+(() => {
+  const themes = %s;
+  window.otsApplyTheme = () => {
+    const dark = document.body.classList.contains("body--dark");
+    if (window.monaco && window.monaco.editor) {
+      window.monaco.editor.setTheme(dark ? "vs-dark" : "vs");
+    }
+    for (const el of document.querySelectorAll(".ots-term")) {
+      const term = (getElement(el) || {}).terminal;
+      if (term) term.options.theme = dark ? themes.dark : themes.light;
+    }
+  };
+  new MutationObserver(() => window.otsApplyTheme())
+    .observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  window.addEventListener("load", () => setTimeout(window.otsApplyTheme, 800));
+})();
+</script>"""
 
 VIEWS: list[tuple[str, str, str]] = [
     ("files", "folder", "Files"),
@@ -111,10 +156,15 @@ class Workbench:
 
     # ------------------------------------------------------------------ layout
     def build(self) -> None:
+        import json
+
         ui.add_css(CSS)
         ui.add_body_html("<script>document.addEventListener('keydown', (e) => {"
                          "if ((e.ctrlKey || e.metaKey) && ['k', 'p'].includes(e.key)) "
                          "e.preventDefault(); }, true);</script>")
+        ui.add_body_html(THEME_SCRIPT % json.dumps(TERMINAL_THEMES))
+        theme = str(self.state.config.get("web.theme", "auto")).lower()
+        self.dark = ui.dark_mode({"dark": True, "light": False}.get(theme))
         self.layout_root = ui.element("div").classes("w-full")
         with ui.header(elevated=False).classes("bg-white text-grey-9 q-py-xs q-px-md items-center "
                                                "gap-3 border-b"):
@@ -123,6 +173,12 @@ class Workbench:
             ui.button("/  Search commands, objects, files", on_click=lambda: self.palette()) \
                 .props("flat no-caps align=left").classes("grow bg-grey-2 text-grey-7")
             self.ai_label = ui.label("").classes("text-caption text-grey-8")
+            with ui.button(icon="contrast").props("flat round dense") as theme_button:
+                with ui.menu():
+                    ui.menu_item("Follow the system", lambda: self.set_theme("auto"))
+                    ui.menu_item("Light", lambda: self.set_theme("light"))
+                    ui.menu_item("Dark", lambda: self.set_theme("dark"))
+            theme_button.tooltip("Theme: light, dark or that of the system")
             ui.button(icon="terminal", on_click=self.toggle_terminal) \
                 .props("flat round dense").tooltip("Python terminal (Ctrl+`)")
             ui.button(icon="smart_toy", on_click=self.toggle_chat) \
@@ -191,9 +247,7 @@ class Workbench:
                         "convertEol": True, "cursorBlink": True, "fontSize": 13,
                         "scrollback": scrollback,
                         "fontFamily": "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
-                        "theme": {"background": "#fcfcfb", "foreground": "#0b0b0b",
-                                  "cursor": "#2a78d6", "selectionBackground": "#cde2fb",
-                                  "brightBlack": "#898781"},
+                        "theme": TERMINAL_THEMES["light"],  # the page script follows the theme
                     }).classes("ots-term")
                     self.xterm.on_data(lambda e: self.state.terminal.feed(e.data))
                     self.xterm.on_resize(lambda e: self.state.terminal.resize(e.cols, e.rows))
@@ -236,13 +290,20 @@ class Workbench:
             return key.split(":", 1)[1].split("+")[0]
         return None
 
-    def open_signal(self, *names: str) -> None:
+    def open_signal(self, *names: str, overlay: bool | None = None) -> None:
+        """Time plot of one or several signals: ``overlay`` in one panel, or stacked."""
         names = tuple(n for n in names if n in self.state.session.signals)
         if not names:
             return
         key = "signal:" + "+".join(names)
-        title = " + ".join(names)
-        self.work.open(key, title, lambda: SignalTab(self, list(names)).build(), "show_chart")
+        tab = self.work.content(key)
+        if tab is not None and overlay is not None and len(names) > 1 \
+                and tab.stacked == overlay:
+            tab._set("stacked", not overlay)
+            tab._header()
+        self.work.open(key, " + ".join(names), lambda: SignalTab(
+            self, list(names), stacked=not overlay if overlay is not None else True).build(),
+                       "show_chart")
         self.objects.refresh()
 
     def open_result(self, name: str) -> None:
@@ -514,6 +575,15 @@ class Workbench:
             self.channel.push({"type": "notify", "level": "negative",
                                "text": f"{job.name}: {job.error}"})
 
+    def set_theme(self, theme: str) -> None:
+        """Light, dark or following the system (``[web] theme`` gives the default)."""
+        if theme == "dark":
+            self.dark.enable()
+        elif theme == "light":
+            self.dark.disable()
+        else:
+            self.dark.auto()
+
     def show_chat(self) -> None:
         self.right.show()
 
@@ -553,6 +623,8 @@ class Workbench:
                        self.open_realtime),
                       ("New batch…", "run an analysis or a script on many files", self.new_batch),
                       ("Toggle the AI chat", "", self.toggle_chat),
+                      ("Toggle dark mode", "light or dark theme", self.dark.toggle),
+                      ("Theme: follow the system", "", functools.partial(self.set_theme, "auto")),
                       ("Toggle the Python terminal", "", self.toggle_terminal),
                       ("Focus the Python terminal", "", self.show_terminal),
                       ("New test sine", "", functools.partial(self.new_test_signal, "sine")),
@@ -680,6 +752,9 @@ class Workbench:
                 "signal": self.open_signal, "result": self.open_result,
                 "figure": self.open_figure, "variable": self.open_variable,
                 "file": self.open_file}
+            if event.get("what") == "signals":  # plot(S1, S2) of the terminal
+                self.open_signal(*event.get("names", []), overlay=event.get("overlay"))
+                return
             opener = openers.get(str(event.get("what")))
             if opener is not None:
                 opener(str(event.get("name", "")))

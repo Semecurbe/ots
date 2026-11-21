@@ -48,6 +48,13 @@ def _matplotlib_inputhook(context: Any) -> None:
             manager.canvas.start_event_loop(0.05)
 
 
+def _checksum(data: np.ndarray) -> tuple:
+    """Cheap fingerprint of samples: identity, size and sum (NaN-safe)."""
+    total = float(np.sum(data))
+    return (id(data), data.size, total if total == total else "nan",
+            int(np.count_nonzero(np.isnan(data))) if total != total else 0)
+
+
 class OnTheSignalConsole:
     """The onthesignal terminal console.
 
@@ -128,7 +135,7 @@ class OnTheSignalConsole:
 
         self.display.console.print(Markdown(text))
 
-    def confirm(self, question: str, details: str = "") -> bool:
+    def confirm(self, question: str, details: str = "", key: str | None = None) -> bool:
         if details:
             self.display.info(details)
         answer = self.ask(f"{question} (y/N)", "n")
@@ -224,6 +231,14 @@ class OnTheSignalConsole:
         doc = inspect.getdoc(obj) or "No documentation."
         self.display.info(f"{signature}\n\n{doc}")
 
+    def _fingerprints(self, source: str) -> dict[str, tuple]:
+        """Checksums of the signals named in ``source`` (in-place changes of their samples)."""
+        out = {}
+        for name, sig in self.session.signals.items():
+            if re.search(rf"\b{re.escape(name)}\b", source):
+                out[name] = (sig, sig.data_version, _checksum(sig.data))
+        return out
+
     def run_python(self, source: str) -> None:
         tree = ast.parse(source, mode="exec")
         last = None
@@ -231,12 +246,19 @@ class OnTheSignalConsole:
             node = tree.body.pop()
             assert isinstance(node, ast.Expr)
             last = ast.Expression(node.value)
-        if tree.body:
-            exec(compile(tree, "<console>", "exec"), self.ns)  # noqa: S102 (user console)
-        if last is not None:
-            value = eval(compile(last, "<console>", "eval"), self.ns)  # noqa: S307
-            if value is not None and id(value) not in self.display.displayed:
-                self.display.info(repr(value))
+        before = self._fingerprints(source)
+        try:
+            if tree.body:
+                exec(compile(tree, "<console>", "exec"), self.ns)  # noqa: S102 (user console)
+            if last is not None:
+                value = eval(compile(last, "<console>", "eval"), self.ns)  # noqa: S307
+                if value is not None and id(value) not in self.display.displayed:
+                    self.display.info(repr(value))
+        finally:
+            # S4.data[:100] = 0 changes the samples without assigning them: record it too.
+            for sig, version, checksum in before.values():
+                if sig.data_version == version and _checksum(sig.data) != checksum:
+                    sig.mark_modified()
 
     def ask_ai(self, text: str) -> None:
         if self.ai_handler is not None:

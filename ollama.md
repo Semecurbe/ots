@@ -135,6 +135,26 @@ AI provider: ollama (qwen3.8:27b-q8_0, http://<gb10-address>:11434, context 2621
 from the configuration file (or from `/config ai.context=65536` for the session). To switch
 back to Claude: `/model anthropic claude-opus-5-5` (the key must be in `ANTHROPIC_API_KEY`).
 
+To switch often between the GB10 and Claude, declare both as profiles; `/model <profile>` (or
+the *Profile* list of the web chat) then changes everything at once:
+
+```toml
+[ai]
+profile = "Qwen3.8 · GB10"
+
+[[ai.profiles]]
+name = "Qwen3.8 · GB10"
+provider = "ollama"
+model = "qwen3.8:27b-q8_0"
+base_url = "http://<gb10-address>:11434"
+context = 262144
+
+[[ai.profiles]]
+name = "Claude Opus 5.5"
+provider = "anthropic"
+model = "claude-opus-5-5"
+```
+
 Then use the assistant as usual: `/ai` to toggle the AI mode, or `/ai <question>` for a single
 question.
 

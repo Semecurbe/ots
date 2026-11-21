@@ -18,6 +18,9 @@ web.batch          BatchRun: a batch followed file by file, its table and its re
 web.terminal       Python terminal: the console running in a thread, VT100 to xterm.js
 web.figures        data sent to the charts: decimated, aligned, JSON-safe
 web.security       Host/Origin guard, path confinement
+web.pwa            installable application: manifest, service worker, icons, offline page
+web.code           help for Python in the editor: Jedi (completion, signature, hover), ruff
+desktop            onthesignal desktop: the server in a child process, Qt WebEngine window
 plot.spec          FigureSpec: renderer-independent figure and results panel
 plot.layouts       one layout per analysis, generic layout, results_view()
 processing.display decimation keeping minima and maxima, window statistics
@@ -112,8 +115,11 @@ result. `COMPARE_PANELS` chooses the panels compared for an analysis (residual s
 `sinad`); `NOT_COMPARABLE` lists the analyses refused.
 
 **Chart component.** `uplot_chart.js` draws a toolbar above the panels (`buildToolbar`):
-full view, previous and next view, *Zoom* and *Move* modes. Every gesture of the user (drag
-zoom, move, wheel burst) is a step of the view history: `beginGesture` records the view at
+full view, previous and next view, *Zoom* and *Move* modes. The zoom selection of uPlot is a
+rectangle (`drag: {x, y, uni: 30}`): a rectangle sets the ordinate of its panel
+(`entry.yRange`, kept by the range function of the y scale until the full view), a flatter
+drag zooms the abscissa only. Every gesture of the user (drag zoom, move, wheel burst) is a
+step of the view history, which keeps the ordinates too: `beginGesture` records the view at
 its start, `endGesture` stores it once the gesture is over; Back and Forward apply a view of
 the history (`applyView`) and, on a time plot, ask the server for that window. Moving is done
 by the component itself (`startPan`, `shifted`), the zoom selection of uPlot being disabled
@@ -126,6 +132,60 @@ move shows data at once; the envelope always keeps the first and last samples, s
 full view is the full record. With `live=True` (real-time dashboard), `setPanelData`
 re-scales the axes to the new data until the user zooms or moves; *Home* makes them follow
 the data again.
+
+## Editor, chat, configuration, theme
+
+- **Editor.** Monaco's providers of completion, signature help and hover are registered once
+  for the Python language; each editor registers its model in a map, sends a `request`
+  event (`{id, kind, code, line, column}`) and receives the answer through `resolveRequest`
+  (4 s at most). `web.code` answers with `jedi.Interpreter` on the namespace of the Python
+  terminal. After a pause of typing, the `lint` event runs `ruff check --stdin-filename` (the
+  configuration of the project applies); outside `scripts/` the names of the terminal are
+  declared as builtins. Each marker owner (`onthesignal` for the syntax check, `ruff`) keeps
+  its own set. Jedi's own warnings are filtered: the web interface would show them.
+- **Chat.** Providers stream when `chat(..., on_delta=f)` is given (`f(kind, text)`, kind
+  `text` or `thinking`); `Reply` carries `thinking` and `usage`. The assistant streams when an
+  event handler listens, and a `RequestCancelled` raised from the callback stops the
+  generation. The chat turns `delta` events into a growing bubble (the reasoning in a folded
+  block), `usage` into the context indicator, and saves the conversation (`items` for the
+  display, `transcript` for the assistant, tool calls as dictionaries) in
+  `.onthesignal/chats/<id>.json`. `confirm(question, details, key)` of the user hosts lets
+  the chat remember *Allow for this chat* per tool.
+- **Configuration.** `Config` keeps its `layers` (global and project files) and the `session`
+  values; `origin(key)`, `unknown_keys()`, `items()` and `reload()` serve the *Settings* view.
+  `ai_settings(config)` merges `[ai]` and the active profile; every consumer (provider,
+  label, consent, availability) goes through it.
+- **Theme.** `ui.dark_mode` sets `body--dark`. The charts receive both palettes
+  (`plot.style.DARK`, validated against the dark surface) and redraw when the class changes,
+  keeping their views; on a dark surface the sequential ramp of the heatmaps is reversed. A
+  page script switches Monaco (`vs-dark`) and xterm.js. The CSS of the dark theme is in
+  NiceGUI's `overrides` layer: Quasar's colour classes are `!important` rules of the later
+  `quasar_importants` layer, and between `!important` rules the earlier layer wins (an
+  unlayered rule would lose).
+
+## Application, desktop window, AppImage
+
+- **PWA.** `web.pwa.install(app)` serves `/manifest.webmanifest`, `/sw.js` and
+  `web/static/pwa` (icons, offline page); `head_html()` links them in every page. The service
+  worker never caches the interface (driven by the server in real time): it only answers the
+  navigations that fail with the offline page. `python -m onthesignal.web.pwa` draws the icons
+  again. The browser test `test_installable_as_an_application` asks Chrome, through the
+  DevTools protocol, for the installability errors.
+- **Desktop window.** `onthesignal.desktop` starts `onthesignal web` with the same Python on a
+  free port (`Server`), shows it in a `QWebEngineView` with its own persistent profile, saves
+  the downloads where the user chooses, opens the other sites in the browser, and stops the
+  server (SIGTERM, then kill after 15 s) when the window closes. The server runs in its own
+  process group and the whole group is signalled: in the AppImage, `sys.executable` is the
+  shell wrapper of python-appimage, which starts the interpreter without `exec`, so stopping
+  the direct child alone left the server running (`test_desktop_server_stops_its_whole_process_group`).
+  The page is deleted before its profile (Qt warns otherwise). Without PySide6, `run_browser`
+  opens a Chrome `--app` window.
+- **AppImage.** `packaging/appimage/` is a recipe of python-appimage: `requirements.txt`
+  (written by `build_appimage.py`: the wheel of the project with the `web,ai,desktop` extras),
+  `entrypoint.sh` (`python -m onthesignal.desktop`), the `.desktop` entry, the icon and the
+  AppStream metadata. The Python base image comes from the releases of python-appimage
+  (manylinux2014); the wheels are those that pip chooses on the building computer, so the
+  AppImage runs on distributions at least as recent as their manylinux tags.
 
 ## SeedLink with ObsPy 1.5
 

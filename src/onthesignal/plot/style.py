@@ -23,6 +23,16 @@ REMOVED = SERIES[7]
 #: Sequential single-hue ramp (light → dark) for magnitudes: spectrogram colors.
 SEQUENTIAL_STOPS = ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
 
+#: Dark theme of the web interface: the same eight hues stepped for the dark surface and
+#: validated against it (contrast ≥ 3:1, colour-vision deficiency separation), not inverted.
+#: On a dark surface the sequential ramp runs dark → light (low levels recede into the surface).
+DARK = {
+    "series": ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#0ca30c", "#9085e9",
+               "#e66767"],
+    "surface": "#1a1a19", "ink": "#f0efec", "ink2": "#c3c2b7", "muted": "#898781",
+    "grid": "#2c2c2a", "axis": "#383835", "wash": "#383835", "removed": "#e66767",
+}
+
 LINE_W = 1.5
 THIN_W = 0.8
 MARKER = 6

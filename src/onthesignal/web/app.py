@@ -76,6 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .. import api
     from ..core.config import Config
     from ..core.session import Session, set_session
+    from . import pwa
     from .components import VENDOR, VENDOR_URL
     from .security import LOOPBACK, OriginGuard
     from .state import WebState
@@ -123,6 +124,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     reports.mkdir(parents=True, exist_ok=True)
     app.add_static_files(VENDOR_URL, str(VENDOR))
     app.add_static_files("/_ots/reports", str(reports))
+    # Installable as an application (PWA): manifest, service worker, icons, offline page.
+    pwa.install(app)
+    ui.add_head_html(pwa.head_html(), shared=True)
     docs = Path(__file__).resolve().parents[3] / "docs" / "_site"
     docs_url = ""
     if docs.is_dir():
@@ -164,7 +168,8 @@ def main(argv: Sequence[str] | None = None) -> int:
            if config.get(f"web.{k}")}
     ui.run(host=host, port=port, title="onthesignal", reload=False,
            show=not args.no_browser and bool(config.get("web.open_browser", True)),
-           show_welcome_message=False, favicon="📈", uvicorn_logging_level="warning",
+           show_welcome_message=False, favicon=str(pwa.PWA_DIR / "icon-192.png"),
+           uvicorn_logging_level="warning",
            ssl_certfile=tls.get("tls_cert"), ssl_keyfile=tls.get("tls_key"))
     return 0
 

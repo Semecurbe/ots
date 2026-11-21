@@ -47,15 +47,25 @@ class ObjectsPanel:
                         ui.menu_item("New test sine…", lambda: self.wb.new_test_signal("sine"))
                         ui.menu_item("New test noise…", lambda: self.wb.new_test_signal("noise"))
                         ui.menu_item("New signal from expression…", self.wb.signal_expression)
-            self.plot_together = ui.button("Plot selected signals together",
-                                           icon="stacked_line_chart",
-                                           on_click=self._plot_selected) \
-                .props("flat dense no-caps").classes("q-mx-sm")
-            self.plot_together.set_visibility(False)
-            self.compare = ui.button("Compare selected results", icon="compare_arrows",
-                                     on_click=self._compare_selected) \
-                .props("flat dense no-caps").classes("q-mx-sm")
-            self.compare.set_visibility(False)
+            # Actions on the checked objects (several signals in one plot, comparison).
+            with ui.row().classes("w-full items-center no-wrap gap-0 q-px-sm bg-blue-1") \
+                    as self.actions:
+                self.selection_label = ui.label("").classes("text-caption text-grey-9 grow")
+                self.overlay = ui.button("Overlay", icon="stacked_line_chart",
+                                         on_click=lambda: self._plot_selected(True)) \
+                    .props("flat dense no-caps size=sm") \
+                    .tooltip("Plot the checked signals in one panel")
+                self.stack = ui.button("Stack", icon="view_agenda",
+                                       on_click=lambda: self._plot_selected(False)) \
+                    .props("flat dense no-caps size=sm") \
+                    .tooltip("One panel per checked signal, on a common time axis")
+                self.compare = ui.button("Compare", icon="compare_arrows",
+                                         on_click=self._compare_selected) \
+                    .props("flat dense no-caps size=sm") \
+                    .tooltip("Overlay the checked results of the same analysis")
+                ui.button(icon="close", on_click=self._clear_selection) \
+                    .props("flat dense round size=sm").tooltip("Uncheck everything")
+            self.actions.set_visibility(False)
             self.box = ui.column().classes("w-full gap-0 overflow-auto grow")
         self.refresh()
 
@@ -72,7 +82,7 @@ class ObjectsPanel:
             "text-caption text-weight-bold text-grey-7 q-px-sm q-pt-sm")
 
     def _row(self, key: str, name: str, subtitle: str, on_click: Any, menu: list[tuple],
-             drag: str = "", active: bool = False) -> None:
+             drag: str = "", active: bool = False, checkable: bool = False) -> None:
         classes = "w-full q-px-sm q-py-none cursor-pointer rounded-borders"
         if active or key in self.selected:
             classes += " bg-blue-1"
@@ -84,6 +94,14 @@ class ObjectsPanel:
             item.on("dragstart", js_handler=(
                 f"(e) => e.dataTransfer.setData('text/plain', {drag!r})"))
         with item:
+            if checkable:
+                with ui.item_section().props("side").classes("q-pr-xs"):
+                    box = ui.checkbox(value=key in self.selected,
+                                      on_change=lambda e, key=key: self._check(key, e.value)) \
+                        .props("dense size=xs").tooltip("Check several signals to overlay them, "
+                                                        "or results to compare them")
+                    # Checking does not open the object.
+                    box.on("click", js_handler="(e) => e.stopPropagation()")
             with ui.item_section():
                 ui.item_label(name).classes("text-body2 text-weight-medium")
                 if subtitle:
@@ -101,6 +119,18 @@ class ObjectsPanel:
             return
         action()
 
+    def _check(self, key: str, value: bool) -> None:
+        if value:
+            self.selected.add(key)
+        else:
+            self.selected.discard(key)
+        self._update_buttons()
+
+    def _clear_selection(self) -> None:
+        self.selected.clear()
+        self._update_buttons()
+        self.refresh()
+
     def _chosen(self, group: str) -> list[str]:
         """Selected names of a group (``signal`` or ``result``), in the order of the session."""
         session = self.wb.state.session
@@ -108,14 +138,20 @@ class ObjectsPanel:
         return [n for n in names if f"{group}:{n}" in self.selected]
 
     def _update_buttons(self) -> None:
-        self.plot_together.set_visibility(len(self._chosen("signal")) > 1)
-        self.compare.set_visibility(len(self._chosen("result")) > 1)
+        signals, results = len(self._chosen("signal")), len(self._chosen("result"))
+        parts = [f"{signals} signal{'s' if signals > 1 else ''}" if signals else "",
+                 f"{results} result{'s' if results > 1 else ''}" if results else ""]
+        self.selection_label.text = " · ".join(p for p in parts if p) + " checked"
+        self.overlay.set_visibility(signals > 1)
+        self.stack.set_visibility(signals > 1)
+        self.compare.set_visibility(results > 1)
+        self.actions.set_visibility(bool(signals or results))
 
-    def _plot_selected(self) -> None:
+    def _plot_selected(self, overlay: bool = True) -> None:
         names = self._chosen("signal")
         self.selected -= {f"signal:{n}" for n in names}
         self._update_buttons()
-        self.wb.open_signal(*names)
+        self.wb.open_signal(*names, overlay=overlay)
         self.refresh()
 
     def _compare_selected(self) -> None:
@@ -152,7 +188,7 @@ class ObjectsPanel:
                     ("Export…", lambda name=name: self.wb.export_signal(name)),
                     ("Send to AI", lambda name=name: self.wb.chat.attach(f"@{name}")),
                     ("Delete", lambda name=name: self.wb.delete_signal(name)),
-                ], drag=name, active=active == key)
+                ], drag=name, active=active == key, checkable=True)
             aliases: dict[int, list[str]] = {}
             for var, value in list(state.terminal.console.ns.items()):
                 if hasattr(value, "kind") and hasattr(value, "values") and not var.startswith("_"):
@@ -172,7 +208,7 @@ class ObjectsPanel:
                     ("Copy name", lambda n=r.name: ui.clipboard.write(n)),
                     ("Ask AI about it", lambda r=r: self.wb.ask_ai_about(r)),
                     ("Delete", lambda n=r.name: self.wb.delete_result(n)),
-                ], drag=r.name, active=active == key)
+                ], drag=r.name, active=active == key, checkable=True)
             figures = [f for f in state.figures if self._match(f.name, f.title)]
             if figures:
                 self._group("FIGURES", len(figures))

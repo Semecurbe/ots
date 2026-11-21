@@ -458,3 +458,177 @@ def test_acquisition_is_kept_by_the_server(state, tmp_path):
     assert wait(lambda: job.state != "running", 30)
     assert job.state == "done" and state.acquisition is None
     assert state.acquisition_progress is not None and state.session.signals
+
+
+# ---------------------------------------------------------------------------------- overlays, PWA
+def test_overlay_of_signals_in_different_units_warns():
+    a = make_noise(1.0, bits=16, seed=1, duration=2)
+    b = make_noise(1.0, bits=16, seed=2, duration=2)
+    a.name, b.name = "S1", "S2"
+    a.unit, a.sensitivity = "V", 1e-6
+    spec = signal_figure([a, b], "physical", stacked=False, colors={"S1": "series:3"})
+    (panel,) = spec.panels
+    assert [s.color for s in panel.series] == ["series:3", "series:1"]
+    assert panel.y.unit == "" and "different units" in spec.note
+    assert "(V)" in panel.series[0].label
+    counts = signal_figure([a, b], "counts", stacked=False)
+    assert counts.note == "" and counts.panels[0].y.unit == "counts"
+
+
+def test_pwa_manifest_service_worker_and_icons():
+    from PIL import Image
+
+    from onthesignal.web import pwa
+
+    manifest = pwa.manifest()
+    assert manifest["display"] == "standalone" and manifest["start_url"] == "/"
+    sizes = {icon["sizes"] for icon in manifest["icons"]}
+    assert {"192x192", "512x512"} <= sizes
+    assert any(icon["purpose"] == "maskable" for icon in manifest["icons"])
+    for icon in manifest["icons"]:
+        path = pwa.PWA_DIR / icon["src"].rsplit("/", 1)[1]
+        assert Image.open(path).size == tuple(int(n) for n in icon["sizes"].split("x"))
+    assert (pwa.PWA_DIR / "offline.html").is_file()
+    assert f"{pwa.PWA_URL}/offline.html" in pwa.SERVICE_WORKER
+    head = pwa.head_html()
+    assert 'rel="manifest"' in head and 'serviceWorker.register("/sw.js")' in head
+
+
+def test_desktop_launcher_helpers(tmp_path, monkeypatch):
+    from onthesignal import desktop
+
+    command = desktop.server_command(tmp_path, 8123, ["a.mseed"])
+    assert command[1:4] == ["-m", "onthesignal.cli.main", "web"]
+    assert "--no-browser" in command and command[-1] == "a.mseed"
+    assert command[command.index("--host") + 1] == "127.0.0.1"
+    assert desktop.default_project(str(tmp_path)) == tmp_path.resolve()
+    monkeypatch.chdir(tmp_path)
+    assert desktop.default_project(None) == tmp_path.resolve()
+    monkeypatch.setattr(desktop.Path, "home", lambda: tmp_path)
+    assert desktop.default_project(None) is None  # launched from the menu: ask
+    port = desktop.free_port()
+    assert desktop.wait_for(f"http://127.0.0.1:{port}/", timeout=5, alive=lambda: False) is False
+
+
+# ---------------------------------------------------------------------------------- lot W9
+def test_editor_help_from_jedi_and_ruff(tmp_path):
+    from onthesignal.web import code
+
+    namespace = {"S1": make_noise(1.0, bits=16, seed=1, duration=1)}
+    labels = [i["label"] for i in code.complete("x = S1.", 1, 7, namespace)]
+    assert "sensitivity" in labels and "lnm" in labels
+    assert not any(label.startswith("_") for label in labels)  # private names when typed
+    from onthesignal import api
+
+    signature = code.signature("api.noise(S1, ", 1, 14, {**namespace, "api": api})
+    assert signature["label"].startswith("noise(") and signature["active"] == 1
+    assert "fmax" in " ".join(signature["parameters"])
+    assert "noise" in (code.hover("api.noise", 1, 6, {"api": api}) or "")
+    if code.ruff_binary() is None:
+        pytest.skip("ruff is not installed")
+    markers = code.ruff_markers("import os\nx = noise(S1)\n", tmp_path / "a.py")
+    messages = " ".join(m["message"] for m in markers)
+    assert "F401" in messages and "F821" in messages
+    markers = code.ruff_markers("x = noise(S1)\n", tmp_path / "a.py", defined=["noise", "S1"])
+    assert markers == []  # names of the terminal are defined
+    assert code.ruff_markers("x = (\n", tmp_path / "a.py")[0]["severity"] == "error"
+
+
+def test_chat_attachments_history_and_allow_for_this_chat(state, tmp_path):
+    from types import SimpleNamespace
+
+    from onthesignal import api
+    from onthesignal.web.ui.chat import ChatHost, ChatPanel, chat_markdown
+
+    sig = make_noise(1.0, bits=16, seed=1, duration=5)
+    state.session.add_signal(sig)
+    api.noise("S1", show=False)
+    (tmp_path / "context.md").write_text("Bench 3, shorted input.\n")
+    channel = state.connect("a")  # the browser tab that receives the questions
+    wb = SimpleNamespace(state=state, id="a", channel=channel, root=tmp_path,
+                         roots=[tmp_path])
+    panel = ChatPanel(wb)  # type: ignore[arg-type]
+    names, block = panel.attachments("Compare @S1 with @R1, see @context.md and @nothing")
+    assert names == ["S1", "R1", "context.md"]
+    assert "### S1" in block and "### Result R1" in block and "Bench 3" in block
+    assert "samples" in block and "data" not in block.split("summaries")[0][-5:]
+    record = {"title": "noise", "created": "2026-11-20", "provider": "ollama", "items": [
+        {"kind": "user", "text": "noise of S1?"},
+        {"kind": "tool", "name": "noise", "arguments": '{"signal": "S1"}', "ok": True,
+         "summary": "rms 1.0"},
+        {"kind": "assistant", "text": "The RMS is 1 count."}]}
+    text = chat_markdown(record)
+    assert "**You:** noise of S1?" in text and "`noise(" in text and "1 count" in text
+
+    host = ChatHost(wb)  # type: ignore[arg-type]
+    answers = []
+    thread = threading.Thread(target=lambda: answers.append(
+        host.confirm("Run the script?", key="run_script")), daemon=True)
+    thread.start()
+    assert wait(lambda: bool(channel.queue))
+    event = channel.drain()[0]
+    assert event["key"] == "run_script"
+    state.requests.answer(event["request"], "chat")  # "Allow for this chat"
+    thread.join(5)
+    assert answers == [True]
+    assert host.confirm("Run the script again?", key="run_script") is True  # not asked
+    notes = [e.get("text", "") for e in channel.drain() if e.get("kind") == "note"]
+    assert notes and notes[-1].startswith("Allowed for this chat")
+
+
+def test_full_scale_levels_plot_function_and_variable_tree(state):
+    from onthesignal.synthetic import make_sine
+    from onthesignal.web.figures import full_scale_lines
+    from onthesignal.web.ui.tabs import _tree_nodes
+
+    loud = make_sine(5.0, ratio=0.9, bits=16, duration=2)  # 90 % of the full scale
+    quiet = make_noise(1.0, bits=16, seed=1, duration=2)
+    lines = full_scale_lines(loud, "counts")
+    assert [line.y for line in lines] == [2.0**15, -(2.0**15)] and lines[0].extend
+    assert full_scale_lines(quiet, "counts") == []
+    loud.unit, loud.sensitivity = "V", 1e-6
+    assert full_scale_lines(loud, "physical")[0].y == pytest.approx(2.0**15 * 1e-6)
+    spec = signal_figure([loud], "counts")
+    assert spec.panels[0].hlines and spec.panels[0].hlines[0].label == "± full scale / 2"
+
+    tab = state.connect("a")
+    x = np.linspace(0, 1, 5000)
+    state.plot(x, np.sin(x), np.cos(x), title="trig", labels=["sin", "cos"])
+    record = state.figures[-1]
+    assert record.spec["title"] == "trig" and record.png == b""
+    assert [s["label"] for s in record.spec["panels"][0]["series"]] == ["sin", "cos"]
+    assert len(record.data["plot"]["series"]) == 2 and len(record.data["plot"]["x"]) <= 4802
+    with pytest.raises(Exception, match="x has 5000 values"):
+        state.plot(x, np.zeros(3))
+    state.session.add_signal(quiet)
+    state.plot(state.session.signals["S1"])
+    opened = [e for e in tab.drain() if e["type"] == "open"]
+    assert opened[0]["what"] == "figure" and opened[-1] == {
+        "type": "open", "what": "signals", "names": ["S1"], "overlay": True}
+    state.terminal.submit("plot(np.arange(10.0), title='ramp')")  # from the terminal
+    assert wait(lambda: state.figures[-1].title == "ramp")
+
+    nodes = _tree_nodes({"a": [1, 2, {"b": 3}], "c": "text"})
+    assert nodes[0]["label"] == "a: list (3)" and nodes[0]["children"][2]["children"][0][
+        "label"] == "b: 3"
+    assert nodes[1]["label"] == "c: 'text'"
+
+
+def test_desktop_server_stops_its_whole_process_group(tmp_path, monkeypatch):
+    """In the AppImage, python is a shell script running the interpreter as a child: stopping
+    the direct child alone left the server running."""
+    import sys
+
+    from onthesignal import desktop
+
+    wrapper = tmp_path / "python-wrapper"
+    wrapper.write_text(f'#!/bin/bash\n"{sys.executable}" "$@"\n')  # no exec, as python-appimage
+    wrapper.chmod(0o755)
+    monkeypatch.setattr(desktop, "server_command", lambda project, port, files: [
+        str(wrapper), "-m", "http.server", str(port), "--bind", "127.0.0.1"])
+    server = desktop.Server(tmp_path, [])
+    assert desktop.wait_for(server.url, timeout=20, alive=server.alive)
+    group = server.process.pid
+    server.stop(timeout=5)
+    with pytest.raises(ProcessLookupError):
+        os.killpg(group, 0)  # nothing left of the group: the wrapper and the server are gone

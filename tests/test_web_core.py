@@ -297,3 +297,16 @@ def test_generic_layout_for_script_results():
     assert [len(p.series) for p in spec.panels] == [2, 1]
     assert results_view(r)["groups"][0]["title"] == "Values"
     assert get_command("noise").name == "noise"
+
+
+def test_console_records_changes_of_the_samples(console):
+    sig = console.session.signals["S1"]
+    version = sig.data_version
+    console.execute("S1.data[:10] = 0")  # in place: found by comparing checksums
+    assert sig.data_version == version + 1 and sig.history[-1] == "samples modified"
+    console.execute("S1.data = S1.data + 5")
+    assert sig.data_version == version + 2
+    console.execute("n = S1.npts")  # reading changes nothing
+    assert sig.data_version == version + 2
+    console.execute("S2 = S1 + 3")
+    assert console.session.signals["S2"].history[-1] == "offset +3 counts"

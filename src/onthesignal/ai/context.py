@@ -209,23 +209,25 @@ def edit_context_path() -> Path:
 
 
 def provider_label(config: object) -> str:
-    getter = getattr(config, "get", None)
-    if getter is None:
-        return "?"
-    provider = getter("ai.provider", "ollama")
-    details = [getter("ai.model", "") or "default model"]
-    if str(provider).lower() == "ollama":
-        if getter("ai.base_url", ""):
-            details.append(getter("ai.base_url"))
-        from .providers import context_tokens
+    """``Qwen3.8 · GB10: ollama (qwen3.8:27b-q8_0, http://gb10:11434, context 262144 tokens)``."""
+    from .providers import ai_settings, context_tokens
 
+    if getattr(config, "get", None) is None:
+        return "?"
+    settings = ai_settings(config)  # type: ignore[arg-type]
+    provider = settings["provider"]
+    details = [settings["model"] or "default model"]
+    if provider == "ollama":
+        if settings["base_url"]:
+            details.append(settings["base_url"])
         try:
             tokens = context_tokens(config)  # type: ignore[arg-type]
         except Exception:  # an invalid value is reported when the provider is created
             tokens = 0
         if tokens:
             details.append(f"context {tokens} tokens")
-    return f"{provider} ({', '.join(str(d) for d in details)})"
+    label = f"{provider} ({', '.join(str(d) for d in details)})"
+    return f"{settings['profile']}: {label}" if settings["profile"] else label
 
 
 __all__ = [

@@ -9,6 +9,8 @@
 | v1.4 | 2026-11-20 | Passage à NiceGUI 4 (§3.1) : versions figées des bibliothèques, navigateurs pris en charge (§14) |
 | v1.5 | 2026-11-20 | Lot W8 réalisé : précisions sur le zoom à la molette (§5.1), le spectrogramme (§5.4), la comparaison (§7.6), le temps réel (§8.2) et les lots (§8.5) ; adaptations du code (annexe B) |
 | v1.6 | 2026-11-20 | Navigation dans les graphiques comme dans matplotlib (§5.1) : vue complète, vues précédente et suivante, modes zoom et déplacement ; marge transmise autour de la fenêtre d'un tracé temporel (§5.2) |
+| v1.7 | 2026-11-20 | Zoom par rectangle sur les deux axes (§5.1) ; superposition de signaux choisis par cases à cocher dans l'encart des objets (§6.1, §6.4) ; modification des échantillons depuis le terminal (§10.2) ; application installable (PWA), fenêtre de bureau et AppImage (§3.5) |
+| v1.8 | 2026-11-20 | Lot W9 réalisé : précisions sur le thème sombre (§4.8), l'aide à l'écriture de Python (§9.4), le chat (§11.2, §11.4, §11.5) et la vue `Settings` (§13) ; points P2 réalisés : niveaux ±PE/2 (§5.2), variables en tableau et en arborescence (§6.1), `plot()` (§10.3), `Ask AI about selection` (§9.6), `Regenerate` (§11.2) |
 
 ## Lecture du document
 
@@ -168,6 +170,12 @@ onthesignal web [files…] [--host 127.0.0.1] [--port 8080] [--project DIR] [--n
 - Dans le serveur, matplotlib utilise un moteur sans fenêtre (`Agg`) : `S.show()` et les analyses affichent leur résultat dans un onglet du navigateur (par `session.display_handler`), jamais dans une fenêtre du serveur.
 - Arrêt : Ctrl+C dans le terminal de lancement, ou commande `Shut down server` (avec confirmation). L'arrêt termine proprement l'acquisition en cours (données enregistrées), ferme le terminal Python et les connexions SeedLink.
 
+### 3.5 Application installable, fenêtre de bureau, AppImage
+
+- L'interface est une application web progressive (PWA) : manifeste, icônes et service worker permettent de l'installer depuis Chrome, Edge ou Safari, avec sa propre fenêtre et son icône. Le service worker ne met pas l'interface en cache (elle est pilotée en temps réel par le serveur) : si le serveur ne répond pas, la fenêtre explique comment le démarrer. Les navigateurs n'installent une application que depuis `127.0.0.1`, `localhost` (tunnel SSH compris) ou HTTPS.
+- `onthesignal desktop` affiche l'interface dans une fenêtre dotée de son propre moteur web (Chromium de Qt WebEngine, dépendance `[desktop]`), à la manière d'une application Electron : il démarre le serveur sur un port libre de la boucle locale et l'arrête à la fermeture de la fenêtre. Cette réalisation remplace la fenêtre native par pywebview envisagée en P3 (§2.3, §17 point 12).
+- Une AppImage, construite par `packaging/appimage/build_appimage.py`, contient Python, onthesignal et Qt WebEngine : elle s'exécute sans installation et ouvre la fenêtre de bureau (la console et les autres commandes restent accessibles). Quarto n'y est pas inclus.
+
 ## 4. Organisation de l'interface
 
 ### 4.1 Disposition générale
@@ -268,6 +276,7 @@ Lorsqu'ils ont le focus, l'éditeur et le terminal gardent leurs propres raccour
 - Thème clair (P1) et thème sombre (P2), qui suivent par défaut le réglage du système et se commutent à la demande.
 - Les couleurs des graphiques reprennent celles de `plot/style.py` (séries, encre, grille, rouge des raies supprimées) : les figures du web et celles des rapports se ressemblent. Le thème sombre utilise une palette dédiée, validée sur fond sombre (contraste, daltonisme), et non une inversion automatique.
 - Les textes utilisent les couleurs d'encre, jamais la couleur d'une série.
+- Réalisation : la palette sombre reprend les huit teintes de la palette claire, avec des pas propres au fond sombre (`#1a1a19`), validés par le calcul (contraste ≥ 3:1, séparation pour les daltonismes) ; sur fond sombre, la rampe séquentielle du spectrogramme va du sombre au clair. Le thème se choisit dans l'en-tête (système, clair, sombre) ; `[web] theme` donne la valeur initiale.
 
 ### 4.9 Erreurs et notifications
 
@@ -285,7 +294,7 @@ Un composant unique affiche une `FigureSpec` (§5.3) :
 - légende toujours présente dès deux séries, avec la valeur sous le curseur ; un clic sur une entrée masque ou affiche la série ;
 - curseur en croix avec lecture des coordonnées dans les unités des axes ;
 - zoom par sélection rectangulaire, retour à la vue complète par double-clic ; zoom à la molette (P2) avec la touche Ctrl, autour du curseur : la molette seule fait défiler la zone de travail, qui contient aussi les résultats ;
-- barre d'outils de navigation sur chaque graphique, comme dans les fenêtres matplotlib : vue complète, vue précédente et vue suivante (chaque zoom ou déplacement peut être annulé puis rétabli), mode « zoom » (glisser sur un intervalle, mode par défaut) et mode « déplacement » (glisser le graphique le long de l'axe des abscisses) ; dans les deux modes, le bouton du milieu et Maj + molette déplacent la vue ;
+- barre d'outils de navigation sur chaque graphique, comme dans les fenêtres matplotlib : vue complète, vue précédente et vue suivante (chaque zoom ou déplacement peut être annulé puis rétabli), mode « zoom » (mode par défaut : glisser un rectangle zoome sur les deux axes, comme *Zoom to rectangle* de matplotlib ; un glisser presque horizontal ne zoome que les abscisses) et mode « déplacement » (glisser le graphique ; l'ordonnée fixée par un rectangle suit le mouvement vertical) ; dans les deux modes, le bouton du milieu et Maj + molette déplacent la vue ;
 - repères verticaux (raies secteur supprimées en tirets rouges, harmoniques H2, H3…, raie parasite du SFDR, fondamentale), lignes horizontales (0 dB), zones (bande d'étude, trous), remplissages (domaine sous le NLNM) ;
 - annotations : conditions de calcul au-dessus du panneau concerné ; les résultats sont affichés sous le graphique (§7.5), **jamais en surimpression des données** (en phase 1, l'encadré matplotlib masquait la raie à 50 Hz) ;
 - styles des séries (épaisseur, tirets, transparence) et couleurs désignées par leur rôle (`series:0`, `ink2`, `removed`…), résolues selon le thème.
@@ -412,6 +421,8 @@ Un clic sur un signal ouvre son onglet : le tracé temporel (§5.2) en haut, et 
 ### 6.4 Tracé de plusieurs signaux (P1)
 
 `Plot together` (sélection multiple dans l'encart) ou le glisser-déposer d'un signal sur un tracé affichent plusieurs signaux ensemble, superposés ou empilés (§5.2). Le panneau sous le graphique donne alors les statistiques de la fenêtre visible pour chaque signal, une colonne par signal.
+
+Réalisation : chaque signal et chaque résultat de l'encart a une case à cocher ; dès deux signaux cochés, les boutons `Overlay` (un seul panneau) et `Stack` (un panneau par signal) les affichent. Au-dessus d'un tracé, `Add signal` ajoute un signal et une étiquette par signal permet de le retirer. Des signaux d'unités différentes sont superposés avec un avertissement (les comparer en counts, ou les empiler).
 
 ### 6.5 Opérations (P1)
 
@@ -585,6 +596,7 @@ Comportement :
 - Complétion et aide à la signature fondées sur Jedi, qui voit l'API onthesignal **et les objets de la session** : après `S1.`, l'éditeur propose `sensitivity`, `lnm`… La documentation au survol provient des docstrings.
 - Diagnostics : erreurs de syntaxe signalées dès la frappe (P1, même vérification que v2 §15.5) ; analyse ruff à l'enregistrement ou après une pause de frappe, affichée en soulignés et dans `Problems` (P2).
 - Mise en forme par ruff et navigation vers les définitions : P3.
+- Réalisation : la complétion, l'aide à la signature et la documentation au survol sont demandées au serveur, qui répond avec Jedi sur l'espace de noms du terminal Python. ruff utilise la configuration du projet ; hors de `scripts/`, les noms du terminal (`S1`, `noise`…) sont déclarés comme définis, puisque ce code s'exécute dans le terminal.
 
 ### 9.5 Exécution depuis l'éditeur (P1)
 
@@ -628,6 +640,7 @@ ots> /lnm S3                                        # graphical form, then resul
   - les fonctions de l'API (`load`, `list_sig`, `noise`, `noise_dsp`, `lnm`, `sinad`, `dynamic`, `make_sine`, `report`…) et les classes `Signal`, `Result` et `Param` ;
   - `np` (numpy), importé d'office ;
   - `_`, valeur de la dernière expression, selon la convention de Python.
+- Les échantillons d'un signal peuvent être modifiés : `S4.data = S4.data + offset` décale `S4` de `offset` counts, `S4.data[:100] = 0` modifie des échantillons sur place ; la modification est notée dans l'historique du signal (`samples modified`) et les tracés de `S4` sont redessinés. `S5 = S4 + offset` crée une copie décalée.
 - La synchronisation avec la session suit les règles de la console (v2 §5.3) et la règle R13 :
   - affecter un signal à une variable l'enregistre sous ce nom : `S4 = S1 - S2` crée `S4`, qui apparaît aussitôt dans l'encart `Objects` ;
   - `del S4` le retire de la session ;
@@ -700,6 +713,7 @@ Converser avec l'assistant (v2 §17) dans un panneau latéral, voir ce qu'il ex�
 - `Stop` interrompt la génération ; `New chat` démarre une nouvelle conversation (P1). `Regenerate` et modification du dernier message : P2.
 - Pendant l'attente, la durée écoulée est affichée, utile avec un modèle local lent (P1). Réponse affichée au fil de la génération (P2 : fournisseurs en mode flux, annexe B). Raisonnement du modèle, lorsqu'il est fourni (Qwen3.8, Claude), dans un bloc repliable (P2).
 - Historique des conversations enregistré dans `.onthesignal/chats/`, rouvrable et exportable en Markdown (P2).
+- Réalisation (P2) : réponse et raisonnement affichés au fil de la génération (Ollama, Claude, ChatGPT) et interruptibles ; mentions `@` avec suggestions (signaux et résultats sous forme de résumés, fichiers texte du projet limités à 20 000 caractères) ; `Allow for this chat` mémorisé par outil jusqu'au prochain `New chat` ; tokens de la dernière requête rapportés à la taille du contexte.
 
 ### 11.3 Appels d'outils (P1)
 
@@ -720,6 +734,7 @@ Converser avec l'assistant (v2 §17) dans un panneau latéral, voir ce qu'il ex�
 - Profils nommés déclarés dans la configuration (§13), par exemple « Qwen3.8 · GB10 » (Ollama distant, contexte de 262 144 tokens) et « Claude Opus 5.5 » (P2). Vérification de disponibilité : serveur joignable, modèle présent (`/api/tags` d'Ollama), clé d'API présente dans l'environnement.
 - Les clés d'API ne sont jamais saisies, affichées ni enregistrées par l'interface : seule leur présence dans l'environnement du serveur est indiquée (v2 §17.1).
 - À la première utilisation d'un fournisseur en ligne, une boîte de dialogue demande le consentement et rappelle ce qui est transmis (métadonnées et résultats, pas les échantillons). Le consentement est mémorisé par profil.
+- Réalisation : `[ai] profile` désigne le profil par défaut ; `/model <profil>` (console) et la liste `Profile` du chat le changent pour la session ; la disponibilité est vérifiée à l'ouverture du chat et à chaque changement.
 
 ### 11.6 Code et scripts proposés par l'IA (P1)
 
@@ -823,6 +838,7 @@ model = "claude-opus-5-5"             # clé lue dans ANTHROPIC_API_KEY
 
 - Sans profil, les clés actuelles de `[ai]` (`provider`, `model`, `base_url`, `context`) restent le réglage par défaut.
 - La vue `Settings` (P2) affiche la configuration fusionnée et l'origine de chaque valeur : défaut, fichier global, fichier du projet, session. `Edit file` ouvre le fichier dans l'éditeur, avec validation TOML à l'enregistrement. Une valeur peut aussi être modifiée pour la session seulement (équivalent de `/config section.key=value`).
+- Réalisation : un clic sur une valeur la modifie pour la session (syntaxe TOML) ; l'enregistrement de `onthesignal.toml` dans l'éditeur relit la configuration en conservant les valeurs de la session. Seul le fichier du projet s'ouvre dans l'éditeur, confiné au projet ; les valeurs du fichier global sont affichées.
 - Les clés inconnues sont ignorées et signalées, sans erreur. Sur le poste actuel, le fichier global `~/.config/onthesignal/config.toml` contient des clés d'une autre application, qui font échouer l'affichage de `/config` (annexe B).
 
 ## 14. Exigences non fonctionnelles

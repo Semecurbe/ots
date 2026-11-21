@@ -29,8 +29,12 @@ class UserHost(Protocol):
     def markdown(self, text: str) -> None:
         """Show an answer of the assistant (Markdown)."""
 
-    def confirm(self, question: str, details: str = "") -> bool:
-        """Ask the user to allow an action; ``details`` (code, arguments) is shown first."""
+    def confirm(self, question: str, details: str = "", key: str | None = None) -> bool:
+        """Ask the user to allow an action; ``details`` (code, arguments) is shown first.
+
+        ``key`` names the kind of action (the tool of the assistant): a host may remember
+        "allow for this chat" for it.
+        """
 
     def run_python(self, code: str) -> None:
         """Run Python code in the session namespace."""

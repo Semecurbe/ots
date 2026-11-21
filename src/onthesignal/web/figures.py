@@ -19,9 +19,10 @@ from ..core.result import Result
 from ..core.signal import Signal
 from ..core.units import COUNTS, pretty_unit
 from ..plot.layouts import comparison_curve
-from ..plot.spec import Axis, Band, FigureSpec, Panel, ResultsSpec, Series
+from ..plot.spec import Axis, Band, FigureSpec, HLine, Panel, ResultsSpec, Series
 from ..plot.style import (
     AXIS,
+    DARK,
     GRID,
     INK,
     INK2,
@@ -46,9 +47,9 @@ LIGHT = {"series": SERIES, "surface": SURFACE, "ink": INK, "ink2": INK2, "muted"
          "grid": GRID, "axis": AXIS, "wash": NEUTRAL_WASH, "removed": REMOVED}
 
 
-def palette(theme: str = "light") -> dict[str, Any]:
-    """Color tokens of the charts (the dark palette is a P2 item, validated separately)."""
-    return dict(LIGHT)
+def palette() -> dict[str, Any]:
+    """Color tokens of the charts for both themes; the chart uses the one of the page."""
+    return {"light": dict(LIGHT), "dark": dict(DARK)}
 
 
 def _json_list(values: np.ndarray) -> list[float | None]:
@@ -209,6 +210,21 @@ def time_origin(signals: list[Signal]) -> UTCDateTime:
     return min(s.starttime for s in signals)
 
 
+#: Fraction of half the full scale from which its levels are drawn on a time plot.
+NEAR_FULL_SCALE = 0.5
+
+
+def full_scale_lines(sig: Signal, units: str) -> list[HLine]:
+    """Levels ±full scale/2 when the signal comes near them (web specification §5.2)."""
+    half = float(sig.full_scale or 2.0**24) / 2.0
+    factor = 1.0 if _unit(sig, units) == "counts" else abs(sig.sensitivity)
+    peak = float(np.max(np.abs(sig.data))) if sig.npts else 0.0
+    if peak < NEAR_FULL_SCALE * half:
+        return []
+    return [HLine(sign * half * factor, "± full scale / 2" if sign > 0 else "", "removed",
+                  [6, 4], extend=True) for sign in (1, -1)]
+
+
 def signal_figure(signals: list[Signal], units: str = "physical", stacked: bool = True,
                   title: str = "", colors: Mapping[str, str] | None = None) -> FigureSpec:
     """Time plot of one or several signals (§5.2): stacked panels or one overlay panel.
@@ -218,6 +234,7 @@ def signal_figure(signals: list[Signal], units: str = "physical", stacked: bool 
     """
     origin = time_origin(signals)
     colors = colors or {}
+    note = ""
     iso = origin.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
     def axis_x() -> Axis:
@@ -240,17 +257,29 @@ def signal_figure(signals: list[Signal], units: str = "physical", stacked: bool 
         panels = [Panel(name, axis_x(), Axis(s.label if len(signals) > 1 else "Amplitude",
                                               _unit(s, units)),
                         [Series(name, s.label, width=0.8, color=color(i, name))],
-                        bands=gaps(s), sync="t", legend=len(signals) > 1)
+                        bands=gaps(s), sync="t", legend=len(signals) > 1,
+                        hlines=full_scale_lines(s, units))
                   for i, (name, s) in enumerate(zip(names, signals, strict=True))]
     else:
-        unit = _unit(signals[0], units)
+        shown = [_unit(s, units) for s in signals]
+        mixed = len(set(shown)) > 1
+        unit = "" if mixed else shown[0]
+        levels: dict[float, HLine] = {}
+        for s in signals:  # one pair of lines per full scale reached
+            for line in full_scale_lines(s, units):
+                levels.setdefault(round(line.y, 12), line)
         panels = [Panel("overlay", axis_x(), Axis("Amplitude", unit),
-                        [Series(n, s.label, width=0.8, color=color(i, n))
-                         for i, (n, s) in enumerate(zip(names, signals, strict=True))],
-                        bands=[b for s in signals for b in gaps(s)], sync="t")]
+                        [Series(n, f"{s.label} ({u})" if mixed else s.label, width=0.8,
+                                color=color(i, n))
+                         for i, (n, s, u) in enumerate(zip(names, signals, shown, strict=True))],
+                        bands=[b for s in signals for b in gaps(s)], sync="t",
+                        hlines=[] if mixed else list(levels.values()))]
+        if mixed:
+            note = (f"The overlaid signals have different units ({', '.join(sorted(set(shown)))})"
+                    ": compare them in counts, or stack them.")
     if not title:
         title = signals[0].label if len(signals) == 1 else " · ".join(names)
-    return FigureSpec(title, panels, results=ResultsSpec())
+    return FigureSpec(title, panels, results=ResultsSpec(), note=note)
 
 
 def _window_indices(sig: Signal, origin: UTCDateTime, t0: float | None, t1: float | None
@@ -316,6 +345,33 @@ def signal_payload(signals: list[Signal], spec: FigureSpec, units: str = "physic
     return data, stats
 
 
+def arrays_figure(title: str, x: np.ndarray | None, ys: Sequence[np.ndarray],
+                  labels: Sequence[str] | None = None, x_label: str = "x",
+                  y_label: str = "y", bins: int = DEFAULT_BINS
+                  ) -> tuple[FigureSpec, dict[str, Any]]:
+    """Chart of numpy arrays of the terminal: ``plot(y)``, ``plot(x, y1, y2…)`` (§10.3)."""
+    curves = [np.asarray(y, float).ravel() for y in ys]
+    if not curves:
+        from ..core.errors import ParameterError
+
+        raise ParameterError("plot() needs at least one array")
+    xs = np.arange(curves[0].size, dtype=float) if x is None else np.asarray(x, float).ravel()
+    for y in curves:
+        if y.size != xs.size:
+            from ..core.errors import ParameterError
+
+            raise ParameterError(f"plot(): x has {xs.size} values, y has {y.size}")
+    names = list(labels or [])
+    names += [f"y{i + 1}" if len(curves) > 1 else y_label for i in range(len(names), len(curves))]
+    order = np.argsort(xs, kind="stable")
+    xs = xs[order]
+    spec = FigureSpec(title or "plot", [Panel("plot", Axis(x_label), Axis(y_label if len(
+        curves) == 1 else ""), [Series(f"y{i}", names[i], width=1.2, color=f"series:{i % 8}")
+                                for i in range(len(curves))], legend=len(curves) > 1)])
+    data = align([decimate_xy(xs, y[order], bins) for y in curves])
+    return spec, {"plot": data}
+
+
 def array_figure(name: str, values: np.ndarray) -> tuple[FigureSpec, dict[str, Any]]:
     """Plot of a one-dimensional numpy array of the terminal (``Variables`` group)."""
     y = np.asarray(values, float).ravel()
@@ -325,5 +381,6 @@ def array_figure(name: str, values: np.ndarray) -> tuple[FigureSpec, dict[str, A
     return spec, {"array": align([(idx.astype(float), y[idx])])}
 
 
-__all__ = ["align", "array_figure", "figure_payload", "heatmap_payload", "palette",
-           "panel_data", "signal_figure", "signal_payload", "signal_series"]
+__all__ = ["align", "array_figure", "arrays_figure", "figure_payload", "full_scale_lines",
+           "heatmap_payload", "palette", "panel_data", "signal_figure", "signal_payload",
+           "signal_series"]

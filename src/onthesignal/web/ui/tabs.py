@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from nicegui import run, ui
+from nicegui import background_tasks, run, ui
 from obspy import UTCDateTime
 
 from ...core.errors import ParameterError
@@ -100,7 +100,12 @@ class WorkArea:
     def set_title(self, key: str, title: str) -> None:
         item = self.items.get(key)
         if item:
-            item["tab"].props(f'label="{title}"')
+            item["title"] = title
+            item["tab"]._props["label"] = title
+            item["tab"].update()
+
+    def key_of(self, content: Any) -> str | None:
+        return next((k for k, item in self.items.items() if item["content"] is content), None)
 
     def refresh(self) -> None:
         """Session changed: let every tab update itself (removed signals close their tabs)."""
@@ -124,11 +129,11 @@ def _copy(text: str) -> None:
 class SignalTab:
     """Time plot of one or several signals, statistics and properties below (§5.2, §6.2)."""
 
-    def __init__(self, wb: Workbench, names: list[str]) -> None:
+    def __init__(self, wb: Workbench, names: list[str], stacked: bool = True) -> None:
         self.wb = wb
         self.names = list(names)
         self.units = "physical"
-        self.stacked = True
+        self.stacked = stacked
         self.window: tuple[float | None, float | None] = (None, None)
         self.selection: tuple[float, float] | None = None
         self.chart: UPlotChart | None = None
@@ -139,33 +144,93 @@ class SignalTab:
         return [session.signals[n] for n in self.names if n in session.signals]
 
     def _fingerprint(self) -> tuple:
-        return tuple((s.name, s.unit, s.sensitivity, s.full_scale, s.title, s.npts, id(s))
-                     for s in self.signals())
+        return tuple((s.name, s.unit, s.sensitivity, s.full_scale, s.title, s.npts, id(s),
+                      s.data_version) for s in self.signals())
 
     def build(self) -> SignalTab:
         with ui.column().classes("w-full gap-1"):
-            with ui.row().classes("w-full items-center gap-2"):
-                ui.toggle({"physical": "Physical units", "counts": "Counts"}, value=self.units,
-                          on_change=lambda e: self._set("units", e.value)).props("dense no-caps")
-                if len(self.names) > 1:
-                    ui.toggle({True: "Stacked", False: "Overlay"}, value=self.stacked,
-                              on_change=lambda e: self._set("stacked", e.value)) \
-                        .props("dense no-caps")
-                ui.space()
-                self.selection_label = ui.label("Shift+drag on the plot selects a window") \
-                    .classes("text-caption text-grey-7")
-                self.analyze_button = ui.button("Analyze selection…", icon="query_stats",
-                                                on_click=self._analyze_selection) \
-                    .props("flat dense no-caps")
-                self.slice_button = ui.button("Slice to new signal", icon="content_cut",
-                                              on_click=self._slice).props("flat dense no-caps")
-                ui.button(icon="image", on_click=self._export_png).props("flat dense round") \
-                    .tooltip("Export the plot as PNG")
+            self.header = ui.row().classes("w-full items-center gap-2")
+            self._header()
             self.chart_box = ui.column().classes("w-full")
+            # A signal dragged from the Objects panel and dropped on the plot is added to it.
+            self.chart_box.on("dragover", js_handler="(e) => e.preventDefault()")
+            self.chart_box.on("drop", self._dropped, js_handler=(
+                "(e) => { e.preventDefault(); emit(e.dataTransfer.getData('text/plain')); }"))
             self.below = ui.column().classes("w-full")
         self._update_buttons()
         self.render()
         return self
+
+    def _header(self) -> None:
+        self.header.clear()
+        with self.header:
+            ui.toggle({"physical": "Physical units", "counts": "Counts"}, value=self.units,
+                      on_change=lambda e: self._set("units", e.value)).props("dense no-caps")
+            if len(self.names) > 1:
+                ui.toggle({False: "Overlay", True: "Stacked"}, value=self.stacked,
+                          on_change=lambda e: self._set("stacked", e.value)) \
+                    .props("dense no-caps").tooltip("Overlay: one panel; Stacked: one panel "
+                                                    "per signal on a common time axis")
+                for name in self.names:
+                    ui.chip(name, removable=True, color=None,
+                            on_value_change=lambda e, n=name: None if e.value
+                            else self.remove_signal(n)) \
+                        .props("dense outline").tooltip(f"Remove {name} from this plot")
+            others = [n for n in self.wb.state.session.signals if n not in self.names]
+            with ui.button("Add signal", icon="add_chart").props("flat dense no-caps") as add:
+                with ui.menu():
+                    for name in others:
+                        ui.menu_item(name, lambda n=name: self.add_signal(n))
+                    if not others:
+                        ui.menu_item("No other signal in the session").props("disable")
+            add.tooltip("Overlay another signal (or drag it from the Objects panel)")
+            ui.space()
+            self.selection_label = ui.label("Shift+drag on the plot selects a window") \
+                .classes("text-caption text-grey-7")
+            self.analyze_button = ui.button("Analyze selection…", icon="query_stats",
+                                            on_click=self._analyze_selection) \
+                .props("flat dense no-caps")
+            self.slice_button = ui.button("Slice to new signal", icon="content_cut",
+                                          on_click=self._slice).props("flat dense no-caps")
+            ui.button(icon="image", on_click=self._export_png).props("flat dense round") \
+                .tooltip("Export the plot as PNG")
+
+    # ------------------------------------------------------------------ signals of the plot
+    def _retitle(self) -> None:
+        key = self.wb.work.key_of(self)
+        if key is not None:
+            self.wb.work.set_title(key, " + ".join(self.names))
+
+    def add_signal(self, name: str) -> None:
+        """Overlay another signal on this plot (a single signal becomes an overlay)."""
+        if name in self.names or name not in self.wb.state.session.signals:
+            return
+        if len(self.names) == 1:
+            self.stacked = False
+        self.names.append(name)
+        self._changed_signals()
+
+    def remove_signal(self, name: str) -> None:
+        if name in self.names and len(self.names) > 1:
+            self.names.remove(name)
+            self._changed_signals()
+
+    def _changed_signals(self) -> None:
+        self.selection = None
+        self.window = (None, None)
+        self._header()
+        self._update_buttons()
+        self.versions = self._fingerprint()
+        self.render()
+        self._retitle()
+
+    def _dropped(self, e: Any) -> None:
+        name = str(e.args or "")
+        if name in self.wb.state.session.signals:
+            self.add_signal(name)
+        elif name:
+            ui.notify(f"{name} is not a signal: only signals can be added to a time plot",
+                      type="warning")
 
     def _export_png(self) -> None:
         if self.chart is not None:
@@ -189,6 +254,10 @@ class SignalTab:
         data, stats = signal_payload(sigs, self.spec, self.units, bins=DEFAULT_BINS)
         height = 380 if len(self.spec.panels) == 1 else min(720, 220 * len(self.spec.panels))
         with self.chart_box:
+            if self.spec.note:
+                with ui.row().classes("w-full items-center gap-2 q-pa-xs bg-amber-1 rounded"):
+                    ui.icon("warning", color="amber-9")
+                    ui.label(self.spec.note).classes("text-body2 text-grey-9")
             self.chart = UPlotChart(self.spec.to_dict(), data, palette(), height=height,
                                     zoomable=True)
             self.chart.on("zoom", self._on_zoom)
@@ -843,6 +912,12 @@ class FigureTab:
             return self
         if record.title:
             ui.label(record.title).classes("text-subtitle1")
+        if record.spec is not None:  # plot() of the terminal: interactive chart
+            self.chart = UPlotChart(record.spec, record.data or {}, palette(), height=420)
+            ui.button("Download PNG", icon="download",
+                      on_click=lambda: self.chart.export_png(f"{record.name}.png")) \
+                .props("flat dense no-caps")
+            return self
         ui.image(record.data_url()).classes("w-full max-w-[1100px]")
         ui.button("Download PNG", icon="download",
                   on_click=lambda: ui.download.content(record.png, f"{record.name}.png")) \
@@ -883,15 +958,59 @@ class VariableTab:
                                      ("Minimum", np.min(finite)), ("Maximum", np.max(finite))):
                         ui.label(label).classes("text-grey-8")
                         ui.label(fmt_num(float(v)))
+            elif isinstance(value, np.ndarray) and value.ndim == 2:
+                self._grid(value)
+            elif isinstance(value, (list, tuple, set, dict)):
+                ui.label(f"{len(value)} item(s)").classes("text-caption text-grey-7")
+                ui.tree(_tree_nodes(value), label_key="label", node_key="id") \
+                    .props("dense").classes("w-full")
             else:
                 text = repr(value)
                 ui.code(text[:20000] + ("…" if len(text) > 20000 else "")).classes("w-full")
+
+    def _grid(self, value: np.ndarray, rows: int = 200, columns: int = 50) -> None:
+        """Two-dimensional array as a table (the first rows and columns)."""
+        shown = value[:rows, :columns]
+        ui.label(f"shape {value.shape[0]} × {value.shape[1]}, {value.dtype}"
+                 + (f" (first {shown.shape[0]} × {shown.shape[1]} shown)"
+                    if shown.shape != value.shape else "")).classes("text-caption text-grey-7")
+        cols = [{"name": "i", "label": "", "field": "i", "align": "right"}]
+        cols += [{"name": f"c{j}", "label": str(j), "field": f"c{j}", "align": "right"}
+                 for j in range(shown.shape[1])]
+        lines = []
+        for i, line in enumerate(shown):
+            row = {"i": str(i)}
+            for j, v in enumerate(line):
+                row[f"c{j}"] = fmt_num(float(v)) if np.issubdtype(type(v), np.number) \
+                    else str(v)
+            lines.append(row)
+        ui.table(columns=cols, rows=lines, row_key="i").props("dense flat bordered") \
+            .classes("w-full")
 
     def refresh(self) -> bool:
         if self.name not in self.wb.state.terminal.console.ns:
             return False
         self.render()
         return True
+
+
+def _tree_nodes(value: Any, prefix: str = "n", depth: int = 0) -> list[dict]:
+    """Nodes of ``ui.tree`` for a list, a tuple, a set or a dictionary (first 200 items)."""
+    items = list(value.items()) if isinstance(value, dict) else list(enumerate(value))
+    nodes = []
+    for k, (key, item) in enumerate(items[:200]):
+        node_id = f"{prefix}.{k}"
+        if isinstance(item, (list, tuple, set, dict)) and depth < 6:
+            kind = type(item).__name__
+            nodes.append({"id": node_id, "label": f"{key}: {kind} ({len(item)})",
+                          "children": _tree_nodes(item, node_id, depth + 1)})
+        else:
+            text = repr(item)
+            nodes.append({"id": node_id, "label": f"{key}: {text[:120]}"
+                          + ("…" if len(text) > 120 else "")})
+    if len(items) > 200:
+        nodes.append({"id": f"{prefix}.more", "label": f"… {len(items) - 200} more"})
+    return nodes
 
 
 class EditorTab:
@@ -924,13 +1043,53 @@ class EditorTab:
                     ui.button("Render", icon="picture_as_pdf",
                               on_click=lambda: self.wb.render_report(self.path)) \
                         .props("flat dense no-caps")
+                ui.button("Ask AI", icon="smart_toy", on_click=self._ask_ai) \
+                    .props("flat dense no-caps") \
+                    .tooltip("Attach the selection (or the current line / cell) to the chat")
             self.editor = MonacoEditor(text, language_of(self.path)) \
                 .classes("w-full").style("height: calc(100vh - 330px); min-height: 260px")
             self.editor.on("save", lambda e: self.save(e.args))
             self.editor.on("run", lambda e: self.run(e.args))
             self.editor.on("run_selection", self._run_selection_event)
             self.editor.on("dirty", lambda e: self._set_dirty(bool(e.args)))
+            if self.path.suffix == ".py":
+                self.editor.on("request", self._request)  # completion, signature, hover
+                self.editor.on("lint", self._lint)
         return self
+
+    async def _request(self, e: Any) -> None:
+        """Answer Monaco with Jedi, which sees the live objects of the Python terminal."""
+        from .. import code
+
+        args = e.args or {}
+        handlers = {"complete": code.complete, "signature": code.signature,
+                    "hover": code.hover}
+        handler = handlers.get(str(args.get("kind")))
+        if handler is None:
+            return
+        namespace = self.wb.state.terminal.console.ns
+        result = await run.io_bound(handler, str(args.get("code", "")), int(args.get("line", 1)),
+                                    int(args.get("column", 0)), namespace, self.path)
+        self.editor.run_method("resolveRequest", args.get("id"), result)
+
+    async def _lint(self, e: Any, report: bool = False) -> None:
+        """ruff after a pause of typing (and at saving, also in the Problems panel)."""
+        from ...scripts import scripts_dir
+        from .. import code
+
+        text = str(e.args or "") if not isinstance(e, str) else e
+        # Outside scripts/, the code runs in the terminal: its names (S1, noise…) exist.
+        script = self.path.parent.resolve() == scripts_dir().resolve()
+        defined = None if script else list(self.wb.state.terminal.console.ns)
+        markers = await run.io_bound(code.ruff_markers, text, self.path, self.wb.root, 15.0,
+                                     defined)
+        if markers is None:  # ruff is not installed
+            return
+        self.editor.set_markers(markers, "ruff")
+        if report:
+            for m in markers:
+                self.wb.state.problem(m["severity"], f"{self.path.name}:{m['line']}:{m['column']} "
+                                                     f"{m['message']}")
 
     def _set_dirty(self, dirty: bool) -> None:
         self.dirty = dirty
@@ -945,6 +1104,17 @@ class EditorTab:
     def _run_selection_event(self, e: Any) -> None:
         if self.wb.state.code_execution and e.args:
             self.wb.state.terminal.submit(str(e.args))
+
+    async def _ask_ai(self) -> None:
+        """Ask AI about selection (§9.6): the code is put in the chat with its file name."""
+        text = await self.editor.run_method("selectionOrCell", timeout=5)
+        if not text or not str(text).strip():
+            ui.notify("Select the code to ask about", type="warning")
+            return
+        fence = {"python": "python", "markdown": "markdown", "ini": "toml"}.get(
+            language_of(self.path), "")
+        self.wb.chat.attach(f"About this code of {self.path.name}:\n```{fence}\n"
+                            f"{str(text).rstrip()}\n```\n")
 
     async def _run_selection_clicked(self) -> None:
         text = await self.editor.run_method("selectionOrCell", timeout=5)
@@ -973,10 +1143,43 @@ class EditorTab:
                 markers.append({"line": exc.lineno or 1, "column": exc.offset or 1,
                                 "message": exc.msg})
                 ui.notify(f"Syntax error line {exc.lineno}: {exc.msg}", type="warning")
+        elif self.path.suffix == ".toml":
+            markers += self._check_toml(text)
         self.editor.set_markers(markers)
+        if self.path.suffix == ".py":
+            background_tasks.create(self._lint(text, report=True), name="ruff")
         self.wb.state.log("editor", f"saved {self.path.name}")
         if not markers:
             ui.notify(f"Saved {self.path.name}", timeout=1200)
+            if self.path.resolve() == (self.wb.root / "onthesignal.toml").resolve():
+                self._reload_configuration()
+
+    def _check_toml(self, text: str) -> list[dict]:
+        """Markers of an invalid TOML file (the configuration is checked when saved)."""
+        import re
+        import tomllib
+
+        try:
+            tomllib.loads(text)
+        except tomllib.TOMLDecodeError as exc:
+            where = re.search(r"line (\d+), column (\d+)", str(exc))
+            line = getattr(exc, "lineno", None) or (int(where.group(1)) if where else 1)
+            column = getattr(exc, "colno", None) or (int(where.group(2)) if where else 1)
+            message = getattr(exc, "msg", None) or str(exc)
+            ui.notify(f"Invalid TOML line {line}: {message}", type="warning")
+            return [{"line": line, "column": column, "message": message}]
+        return []
+
+    def _reload_configuration(self) -> None:
+        try:
+            self.wb.state.config.reload()
+        except ParameterError as exc:
+            ui.notify(str(exc), type="negative", multi_line=True)
+            return
+        ui.notify("onthesignal.toml saved: configuration read again", timeout=2000)
+        view = self.wb._view("settings")
+        if view is not None:
+            view.refresh()
 
     def run(self, text: Any) -> None:
         from ...scripts import scripts_dir

@@ -166,7 +166,7 @@ def test_comparison_and_batch(page):
     page.wait_for_selector(".q-item:has-text('noise_dsp S9')", timeout=20000)
     page.locator(".q-item:has-text('noise_dsp S8')").first.click(modifiers=["Control"])
     page.locator(".q-item:has-text('noise_dsp S9')").first.click(modifiers=["Control"])
-    page.get_by_role("button", name="Compare selected results").click()
+    page.get_by_role("button", name="Compare", exact=True).click()
     page.wait_for_selector("text=Comparison of 2 noise_dsp results", timeout=15000)
     page.wait_for_selector("th:has-text('· S9')", timeout=5000)
     page.locator(".ots-activity button:has(i:has-text('code'))").first.click()
@@ -218,4 +218,83 @@ def test_chart_toolbar_zoom_pan_back_and_home(page):
     assert changed(full) == zoomed
     tool("home").click()
     assert changed(zoomed) == full
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+SCALES = """() => { const u = getElement(document.querySelector('.ots-chart')).plots[0].u;
+    return {x: [u.scales.x.min, u.scales.x.max], y: [u.scales.y.min, u.scales.y.max]}; }"""
+
+
+def test_overlay_by_check_boxes_and_rectangle_zoom(page):
+    _type_in_terminal(page, "S10 = make_sine(2.0, bits=16, seed=1, duration=10, fs=200.0)\n")
+    _type_in_terminal(page, "S11 = make_noise(300.0, bits=16, seed=2, duration=10, fs=200.0)\n")
+    page.wait_for_selector(".q-item:has(.q-item__label:text-is('S11'))", timeout=15000)
+
+    def row(name: str):
+        return page.locator(f".q-item:has(.q-item__label:text-is('{name}'))").first
+
+    row("S10").locator(".q-checkbox").click()
+    row("S11").locator(".q-checkbox").click()
+    page.get_by_role("button", name="Overlay").click()
+    page.wait_for_selector(".q-chip:has-text('S11')", timeout=10000)
+    assert page.locator(".ots-chart .u-over").count() == 1  # one panel, two signals
+    legend = page.locator(".ots-chart .u-legend").first.inner_text()
+    assert "S10 ·" in legend and "S11 ·" in legend
+    page.wait_for_timeout(500)
+    full = page.evaluate(SCALES)
+    box = page.locator(".ots-chart .u-over").first.bounding_box()
+    page.mouse.move(box["x"] + box["width"] * 0.3, box["y"] + box["height"] * 0.2)
+    page.mouse.down()
+    page.mouse.move(box["x"] + box["width"] * 0.6, box["y"] + box["height"] * 0.5, steps=8)
+    page.mouse.up()
+    page.wait_for_timeout(800)
+    zoomed = page.evaluate(SCALES)
+    assert zoomed["x"][1] - zoomed["x"][0] < 0.5 * (full["x"][1] - full["x"][0])
+    assert zoomed["y"][1] - zoomed["y"][0] < 0.5 * (full["y"][1] - full["y"][0])  # rectangle
+    _type_in_terminal(page, "S11.data = S11.data + 1000\n")  # the plot follows the samples
+    page.wait_for_function("() => [...document.querySelectorAll('tr')].some((r) => "
+                           "r.innerText.startsWith('Mean') && r.innerText.includes('1'))",
+                           timeout=8000)
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+def test_installable_as_an_application(server, tmp_path):
+    with playwright.sync_playwright() as p:
+        context = p.chromium.launch_persistent_context(str(tmp_path / "profile"),
+                                                       channel="chrome", headless=True)
+        page = context.new_page()
+        page.goto(server, wait_until="networkidle")
+        page.wait_for_selector("text=OBJECTS", timeout=15000)
+        assert page.evaluate("async () => (await navigator.serviceWorker.ready).active.state"
+                             ) == "activated"
+        cdp = context.new_cdp_session(page)
+        manifest = cdp.send("Page.getAppManifest")
+        assert manifest["errors"] == [] and manifest["url"].endswith("/manifest.webmanifest")
+        assert cdp.send("Page.getInstallabilityErrors")["installabilityErrors"] == []
+        context.close()
+
+
+def test_dark_theme_settings_origins_and_editor_completion(page):
+    page.locator("button:has(i:has-text('contrast'))").first.click()
+    page.locator(".q-menu .q-item:has-text('Dark')").first.click()
+    page.wait_for_function("() => document.body.classList.contains('body--dark')",
+                           timeout=5000)
+    page.wait_for_function("() => getElement(document.querySelector('.ots-term'))"
+                           ".terminal.options.theme.background === '#1a1a19'", timeout=5000)
+    page.locator(".ots-activity button:has(i:has-text('settings'))").first.click()
+    page.locator(".q-expansion-item:has-text('[console]')").first.click()
+    page.wait_for_selector(".q-badge:has-text('project')", timeout=5000)  # onthesignal.toml
+    _type_in_terminal(page, "/edit_script e2e_completion\n")
+    page.wait_for_selector(".monaco-editor", timeout=20000)
+    page.wait_for_timeout(1000)
+    page.locator(".monaco-editor .view-lines").first.click()
+    page.keyboard.press("Control+End")
+    page.keyboard.type("\nx = S1.sens", delay=40)
+    page.wait_for_selector(".suggest-widget.visible .monaco-list-row:has-text('sensitivity')",
+                           timeout=10000)
+    page.keyboard.press("Escape")
+    page.locator("button:has(i:has-text('contrast'))").first.click()
+    page.locator(".q-menu .q-item:has-text('Light')").first.click()
+    page.wait_for_function("() => !document.body.classList.contains('body--dark')",
+                           timeout=5000)
     assert page.errors == []  # type: ignore[attr-defined]

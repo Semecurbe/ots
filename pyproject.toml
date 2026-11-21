@@ -20,8 +20,9 @@ dependencies = [
 
 [project.optional-dependencies]
 ai = ["anthropic", "openai", "ollama"]
-web = ["nicegui>=4.0,<5", "jedi>=0.19"]
+web = ["nicegui>=4.0,<5", "jedi>=0.19", "ruff>=0.5"]
 e2e = ["playwright"]
+desktop = ["PySide6>=6.7"]
 docs = ["quartodoc", "griffe<2", "jupyter"]
 dev = ["pytest>=8", "ruff", "mypy"]
 
@@ -36,6 +37,7 @@ onthesignal = [
     "templates/*",
     "web/components/*.js",
     "web/static/vendor/**/*",
+    "web/static/pwa/*",
 ]
 
 [tool.pytest.ini_options]

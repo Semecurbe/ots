@@ -703,23 +703,97 @@ class RealtimeView:
 
 
 # ---------------------------------------------------------------------------------- settings
+ORIGIN_COLORS = {"session": "orange-8", "project": "blue-8", "global": "teal-8",
+                 "given": "grey-7", "default": "grey-5", "unknown": "red-7"}
+
+
+def parse_value(text: str, current: Any = None) -> Any:
+    """A value typed in the Settings view: TOML literal (``8090``, ``true``, ``["."]``), else
+    text."""
+    import tomllib
+
+    try:
+        return tomllib.loads(f"value = {text}")["value"]
+    except tomllib.TOMLDecodeError:
+        return text
+
+
 class SettingsView:
+    """Configuration with the origin of each value (§13): default, global file, project file,
+    session. A value can be changed for the session; the project file opens in the editor."""
+
     def __init__(self, wb: Workbench) -> None:
         self.wb = wb
 
     def build(self) -> None:
-        config = self.wb.state.config
         with ui.column().classes("w-full gap-1 q-px-sm"):
+            with ui.row().classes("w-full gap-1"):
+                ui.button("Edit onthesignal.toml", icon="edit", on_click=self.edit) \
+                    .props("flat dense no-caps")
+                ui.button(icon="refresh", on_click=self.reload).props("flat dense round size=sm") \
+                    .tooltip("Read the configuration files again")
+            with ui.row().classes("w-full gap-1 items-center"):
+                for origin in ("default", "global", "project", "session"):
+                    ui.badge(origin, color=ORIGIN_COLORS[origin]).props("outline")
+            ui.label("Click a value to change it for this session only.") \
+                .classes("text-caption text-grey-7")
+            self.box = ui.column().classes("w-full gap-0")
+        self.refresh()
+
+    def refresh(self) -> None:
+        config = self.wb.state.config
+        self.box.clear()
+        with self.box:
             sources = ", ".join(str(s) for s in config.sources) or "defaults only"
-            ui.label(f"Loaded from: {sources}").classes("text-caption text-grey-7")
-            ui.button("Edit onthesignal.toml", icon="edit", on_click=self.edit) \
-                .props("flat dense no-caps")
-            for section, values in config.to_dict().items():
-                if not isinstance(values, dict):
-                    continue
-                with ui.expansion(f"[{section}]").props("dense").classes("w-full"):
-                    for key, value in values.items():
-                        ui.label(f"{key} = {value!r}").classes("text-caption")
+            ui.label(f"Files: {sources}").classes("text-caption text-grey-7")
+            unknown = config.unknown_keys()
+            if unknown:
+                with ui.row().classes("w-full no-wrap items-start gap-1 q-pa-xs bg-amber-1 "
+                                      "rounded"):
+                    ui.icon("warning", color="amber-9", size="18px")
+                    ui.label(f"Ignored keys (not read by onthesignal): {', '.join(unknown)}") \
+                        .classes("text-caption text-grey-9")
+            sections: dict[str, list[tuple[str, Any, str]]] = {}
+            for key, value, origin in config.items():
+                section, _, name = key.partition(".")
+                sections.setdefault(section, []).append((name or section, value, origin))
+            for section, rows in sections.items():
+                changed = sum(1 for _, _, o in rows if o not in ("default",))
+                with ui.expansion(f"[{section}]" + (f" · {changed} set" if changed else "")) \
+                        .props("dense").classes("w-full"):
+                    for name, value, origin in rows:
+                        self._row(f"{section}.{name}" if name != section else section, name,
+                                  value, origin)
+
+    def _row(self, key: str, name: str, value: Any, origin: str) -> None:
+        with ui.row().classes("w-full no-wrap items-center gap-1"):
+            ui.label(name).classes("text-caption text-grey-8 w-32 ots-ellipsis").tooltip(key)
+            shown = repr(value) if not isinstance(value, str) else f'"{value}"'
+            ui.label(shown).classes("text-caption grow ots-ellipsis cursor-pointer") \
+                .tooltip(shown).on("click", lambda key=key, value=value: self.change(key, value))
+            ui.badge(origin, color=ORIGIN_COLORS.get(origin, "grey-7")).props("outline")
+
+    async def change(self, key: str, value: Any) -> None:
+        import json
+
+        text = json.dumps(value) if not isinstance(value, str) else f'"{value}"'
+        answer = await ask_text(f"Change {key} for this session",
+                                "Value (TOML: 8090, true, \"text\", [\".\"])", text, "Apply")
+        if answer is None:
+            return
+        self.wb.state.config.set(key, parse_value(answer, value))
+        self.wb.state.log("config", f"{key} = {answer} (session)")
+        ui.notify(f"{key} changed for this session")
+        self.refresh()
+
+    def reload(self) -> None:
+        try:
+            self.wb.state.config.reload()
+        except ParameterError as exc:
+            ui.notify(str(exc), type="negative", multi_line=True)
+            return
+        ui.notify("Configuration read again (the session changes are kept)")
+        self.refresh()
 
     def edit(self) -> None:
         path = self.wb.root / "onthesignal.toml"
@@ -734,12 +808,13 @@ SHORTCUTS = [("/ or Ctrl+K", "command palette"), ("Ctrl+P", "open a file or an o
              ("F5", "run the open script"), ("Shift+Enter", "run the selection in the terminal"),
              ("Ctrl+`", "show or hide the Python terminal"),
              ("Ctrl+Shift+I", "show or hide the chat"),
-             ("Drag", "zoom (Zoom mode) or move (Move mode) on a chart"),
+             ("Drag", "zoom on a rectangle (Zoom mode) or move (Move mode) on a chart"),
              ("Middle drag, Shift+wheel", "move along the abscissa of a chart"),
              ("Ctrl+wheel", "zoom a chart around the cursor"),
              ("Chart toolbar", "full view, previous and next view, Zoom and Move modes"),
              ("Shift+drag", "select a time window on a plot"), ("Double-click", "full view"),
-             ("Ctrl+click", "select several signals (plot) or results (compare)")]
+             ("Check boxes, Ctrl+click", "several signals (overlay, stack) or results "
+              "(compare)")]
 
 
 class HelpView:

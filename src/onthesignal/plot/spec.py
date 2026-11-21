@@ -85,6 +85,8 @@ class HLine:
     label: str = ""
     color: str = "axis"
     dash: list[float] | None = None
+    #: The automatic range of the ordinate includes the line (levels of the full scale).
+    extend: bool = False
 
 
 @dataclass

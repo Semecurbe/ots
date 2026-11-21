@@ -91,8 +91,9 @@ class MonacoEditor(ui.element, component="monaco_editor.js"):
     def mark_saved(self) -> None:
         self.run_method("markSaved")
 
-    def set_markers(self, markers: list[dict]) -> None:
-        self.run_method("setMarkers", markers)
+    def set_markers(self, markers: list[dict], owner: str = "onthesignal") -> None:
+        """Underline problems; each ``owner`` (syntax check, ruff) has its own set."""
+        self.run_method("setMarkers", markers, owner)
 
 
 __all__ = ["LANGUAGES", "MonacoEditor", "UPlotChart", "VENDOR", "VENDOR_URL", "language_of"]

@@ -7,8 +7,11 @@ acquisition, Quarto reports and an optional AI assistant.
 
 The software runs as an interactive console in a Linux terminal and as a web interface in the
 browser (`onthesignal web`: interactive charts, comparison of results, batches, SeedLink
-acquisition and real-time dashboard, Python terminal, code editor, AI chat). Both use the same
-computation core, commands and configuration.
+acquisition and real-time dashboard, Python terminal, code editor, AI chat). The web interface
+also runs in its own window (`onthesignal desktop`, or the AppImage built by
+`packaging/appimage/build_appimage.py`, which needs no installation) and can be installed from
+the browser as an application. All use the same computation core, commands and
+configuration.
 
 ## Installation
 

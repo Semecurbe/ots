@@ -177,3 +177,167 @@ def test_local_and_online_providers():
     assert local_provider("openai", "http://192.168.1.20:8000/v1")  # vLLM on the bench network
     assert local_provider("openai", "http://gb10.local:8000/v1")
     assert not local_provider("openai", "https://api.openai.com/v1")
+
+
+def test_streaming_of_the_three_providers(monkeypatch):
+    from types import SimpleNamespace as NS
+
+    from onthesignal.ai.providers import AnthropicProvider, OllamaProvider, OpenAIProvider
+
+    pieces = []
+
+    def on_delta(kind, text):
+        pieces.append((kind, text))
+
+    class Stream:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def __iter__(self):
+            yield NS(type="content_block_delta", delta=NS(type="thinking_delta", thinking="hmm"))
+            yield NS(type="content_block_delta", delta=NS(type="text_delta", text="Hel"))
+            yield NS(type="content_block_delta", delta=NS(type="text_delta", text="lo"))
+
+        def get_final_message(self):
+            return NS(content=[NS(type="thinking", thinking="hmm"), NS(type="text", text="Hello"),
+                               NS(type="tool_use", id="t1", name="noise", input={"signal": "S1"})],
+                      usage=NS(input_tokens=12, output_tokens=5))
+
+    anthropic = AnthropicProvider.__new__(AnthropicProvider)
+    anthropic.model, anthropic.max_tokens = "claude-test", 100
+    anthropic.client = NS(messages=NS(stream=lambda **kw: Stream()))
+    reply = anthropic.chat("sys", [{"role": "user", "content": "hi"}], [], on_delta=on_delta)
+    assert pieces == [("thinking", "hmm"), ("text", "Hel"), ("text", "lo")]
+    assert (reply.text, reply.thinking, reply.usage) == ("Hello", "hmm", {"input": 12, "output": 5})
+    assert reply.tool_calls[0].arguments == {"signal": "S1"}
+
+    def chunk(content=None, calls=None, usage=None):
+        choices = [] if usage else [NS(delta=NS(content=content, tool_calls=calls))]
+        return NS(choices=choices, usage=usage)
+
+    function = NS(name="noise", arguments='{"sig')
+    chunks = [chunk("Ok"), chunk(calls=[NS(index=0, id="c1", function=function)]),
+              chunk(calls=[NS(index=0, id=None, function=NS(name=None, arguments='nal": "S1"}'))]),
+              chunk(usage=NS(prompt_tokens=30, completion_tokens=7))]
+    openai = OpenAIProvider.__new__(OpenAIProvider)
+    openai.model = "gpt-test"
+    openai.client = NS(chat=NS(completions=NS(create=lambda **kw: iter(chunks))))
+    pieces.clear()
+    reply = openai.chat("sys", [{"role": "user", "content": "hi"}], [], on_delta=on_delta)
+    assert pieces == [("text", "Ok")] and reply.usage == {"input": 30, "output": 7}
+    assert reply.tool_calls[0].name == "noise" and reply.tool_calls[0].arguments == {"signal": "S1"}
+
+    parts = [NS(message=NS(content="", thinking="let me", tool_calls=None), done=False),
+             NS(message=NS(content="Yes", thinking=None, tool_calls=None), done=True,
+                prompt_eval_count=40, eval_count=3)]
+    ollama = OllamaProvider.__new__(OllamaProvider)
+    ollama.model, ollama.context = "qwen", 0
+    ollama.client = NS(chat=lambda **kw: iter(parts))
+    pieces.clear()
+    reply = ollama.chat("sys", [{"role": "user", "content": "hi"}], [], on_delta=on_delta)
+    assert pieces == [("thinking", "let me"), ("text", "Yes")]
+    assert (reply.text, reply.thinking) == ("Yes", "let me")
+    assert reply.usage == {"input": 40, "output": 3}
+
+
+def test_assistant_streams_reports_tokens_and_stops(console):
+    from onthesignal.ai.providers import Reply
+
+    class StreamingProvider(FakeProvider):
+        supports_streaming = True
+
+        def chat(self, system, transcript, tools, on_delta=None):
+            for piece in ("The noise ", "is low."):
+                on_delta("text", piece)
+            return Reply("The noise is low.", [], "short", {"input": 100, "output": 6})
+
+    events = []
+
+    def record(event, data):
+        events.append((event, data))
+
+    assistant = Assistant(console, StreamingProvider([]), on_event=record)
+    assert assistant.ask("noise of S1?") == "The noise is low."
+    kinds = [e for e, _ in events]
+    assert kinds.count("delta") == 2 and "usage" in kinds and kinds[-1] == "done"
+    reply = next(d for e, d in events if e == "reply")
+    assert reply == {"text": "The noise is low.", "thinking": "short"}
+    assert next(d for e, d in events if e == "usage") == {"input": 100, "output": 6}
+
+    class Stopped(StreamingProvider):
+        def chat(self, system, transcript, tools, on_delta=None):
+            assistant.cancel()
+            on_delta("text", "never shown")  # raises RequestCancelled
+            raise AssertionError("not reached")
+
+    assistant = Assistant(console, Stopped([]), on_event=record)
+    assert assistant.ask("again") == "" and assistant.transcript == []
+
+
+def test_profiles_and_availability(monkeypatch):
+    import http.server
+    import json as json_module
+    import threading
+
+    from onthesignal.ai.context import provider_label
+    from onthesignal.ai.providers import (
+        ai_settings,
+        check_availability,
+        consent_key,
+        make_provider,
+        use_profile,
+    )
+    from onthesignal.core.errors import ParameterError
+
+    class Tags(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - name required by http.server
+            body = json_module.dumps({"models": [{"name": "qwen3.8:27b-q8_0"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.HTTPServer(("127.0.0.1", 0), Tags)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    url = f"http://127.0.0.1:{server.server_address[1]}"
+    monkeypatch.setattr("ollama.Client", lambda host=None: None)
+    config = Config({"ai": {"provider": "anthropic", "model": "claude-test", "profile": "GB10",
+                            "profiles": [
+                                {"name": "GB10", "provider": "ollama", "base_url": url,
+                                 "model": "qwen3.8:27b-q8_0", "context": 262144},
+                                {"name": "Missing", "provider": "ollama", "base_url": url,
+                                 "model": "absent:1b"},
+                                {"provider": "ollama"}]}})
+    settings = ai_settings(config)
+    assert settings["provider"] == "ollama" and settings["profile"] == "GB10"
+    assert provider_label(config).startswith("GB10: ollama (qwen3.8:27b-q8_0")
+    assert make_provider(config).context == 262144
+    assert check_availability(config)[0] is True
+    assert consent_key(config) == "GB10"
+    use_profile(config, "Missing")
+    ok, message = check_availability(config)
+    assert not ok and "ollama pull absent:1b" in message
+    with pytest.raises(ParameterError, match="Unknown AI profile"):
+        use_profile(config, "Nope")
+    use_profile(config, "")  # back to the keys of [ai]
+    assert ai_settings(config)["provider"] == "anthropic" and consent_key(config) == "anthropic"
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert check_availability(config) == (False, "ANTHROPIC_API_KEY is not set in the "
+                                                 "environment of the server")
+    server.shutdown()
+
+
+def test_console_model_command_selects_a_profile(console, capsys):
+    console.session.config.set("ai.profiles", [{"name": "Local", "provider": "ollama",
+                                                "model": "qwen3.5:2b"}])
+    console.execute("/model Local")
+    out = capsys.readouterr().out
+    assert "Local: ollama (qwen3.5:2b" in out and "Profiles: Local" in out
+    console.execute("/model ollama llama3")
+    assert console.session.config.get("ai.profile") == ""

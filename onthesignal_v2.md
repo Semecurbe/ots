@@ -6,6 +6,7 @@
 | v2 | 2026-11-17 | Version corrigée, structurée et précisée en vue du développement |
 | v2.1 | 2026-11-17 | Intégration des décisions sur les points ouverts (§22) |
 | v2.2 | 2026-11-20 | Phase 2 : renvoi vers son cahier des charges, [`onthesignal_web.md`](onthesignal_web.md), et NiceGUI 4 (§1, §4.1, §21.2) |
+| v2.3 | 2026-11-20 | Opérateurs de décalage `S ± k` et remplacement des échantillons (`S.data = …`) noté dans l'historique (§5.1) |
 
 ## Lecture du document
 
@@ -245,7 +246,10 @@ Les opérations renvoient toujours un **nouveau** signal (l'original n'est jamai
 | Opération | Effet |
 | --- | --- |
 | `k * S`, `S * k`, `S / k`, `-S` | Amplitude multipliée ou divisée par le scalaire `k` (`2 * S` double l'amplitude) |
+| `S + k`, `k + S`, `S - k`, `k - S` | Échantillons décalés de `k` counts (ajouté le 2026-11-20) |
 | `S1 + S2`, `S1 - S2` | Somme ou différence échantillon par échantillon sur la fenêtre temporelle commune |
+
+Seule exception à la règle ci-dessus, demandée le 2026-11-20 : les échantillons peuvent être remplacés (`S4.data = S4.data + offset`) ; la modification est notée dans `history` (« samples modified »), y compris lorsqu'elle est faite sur place depuis la console (`S4.data[:100] = 0`).
 
 Règles applicables à `S1 ± S2` :
 

@@ -4,7 +4,11 @@ title: "Configuration"
 
 The global file `~/.config/onthesignal/config.toml` is overridden by `onthesignal.toml` in the
 working directory. `/config` shows the merged configuration and the files read;
-`/config section.key=value` changes a value for the session.
+`/config section.key=value` changes a value for the session. In the web interface, the
+*Settings* view shows every value with its origin (default, global file, project file,
+session), changes a value for the session with a click, lists the keys onthesignal does not
+read (another program's, or a typo), and opens `onthesignal.toml` in the editor: saving it
+checks the TOML and reads the configuration again.
 
 ```toml
 [analysis]          # defaults of the analysis parameters with the same name
@@ -32,6 +36,19 @@ base_url = ""
 context = 0                # Ollama context in tokens (0 = server default)
 auto_execute = "read_only"
 send_raw_data = false
+profile = ""               # active profile (name of [[ai.profiles]]); "" = the keys above
+
+[[ai.profiles]]            # named profiles, chosen in the chat or with /model <name>
+name = "Qwen3.8 · GB10"
+provider = "ollama"
+model = "qwen3.8:27b-q8_0"
+base_url = "http://<gb10-address>:11434"
+context = 262144
+
+[[ai.profiles]]
+name = "Claude Opus 5.5"
+provider = "anthropic"
+model = "claude-opus-5-5"  # key read from ANTHROPIC_API_KEY
 
 [report]
 pdf_engine = "typst"       # or "latex"
@@ -56,6 +73,7 @@ upload_max_mb = 1024
 editor_max_mb = 5
 tls_cert = ""              # certificate and key for HTTPS
 tls_key = ""
+theme = "auto"             # "auto" (as the system), "light" or "dark"
 ```
 
 Parameter precedence: value given in the call > signal attribute (`S.full_scale`) >

@@ -504,17 +504,25 @@ def cmd_context(console: OnTheSignalConsole, *_: Any) -> None:
     open_in_editor(edit_context_path(), console.session.config)
 
 
-@slash("model", "Show or choose the AI provider and model", "/model [anthropic|openai|ollama] "
-       "[model]", "AI")
+@slash("model", "Show or choose the AI provider and model, or a profile",
+       "/model [anthropic|openai|ollama] [model] | /model <profile>", "AI")
 def cmd_model(console: OnTheSignalConsole, pos: list[str], *_: Any) -> None:
     from ..ai.context import provider_label
+    from ..ai.providers import PROVIDERS, profiles, use_profile
 
     config = console.session.config
-    if pos:
+    if pos and pos[0].lower() not in PROVIDERS:
+        use_profile(config, " ".join(pos))  # /model Qwen3.8 · GB10
+        console.assistant = None
+    elif pos:
+        config.set("ai.profile", "")
         config.set("ai.provider", pos[0].lower())
         config.set("ai.model", pos[1] if len(pos) > 1 else "")
         console.assistant = None
     console.display.info(f"AI provider: {provider_label(config)}")
+    names = [p["name"] for p in profiles(config)]
+    if names:
+        console.display.info("Profiles: " + ", ".join(names) + " (/model <profile>)")
 
 
 @slash("ai_script", "Generate a script from a description with the AI",

@@ -1,0 +1,3 @@
+# Context for the AI assistant
+
+Bench, digitizer settings, sensor, expected performance…

@@ -29,6 +29,24 @@ it: they share the session and stay synchronized. Reloading the page loses nothi
 session, the Python terminal and the background jobs (acquisition, real time, batches,
 reports) live in the server.
 
+### As an application
+
+The interface can be installed as an application, with its own window and an icon in the
+menu of applications:
+
+- **Chrome, Edge**: the install icon at the right of the address bar, or menu → *Cast, save
+  and share* → *Install page as app…*; **Safari** (macOS): *File* → *Add to Dock*. Firefox
+  does not install web applications.
+- The installed application opens `http://127.0.0.1:8080` (the port used when installing it):
+  the server must be running. If it is not, the window explains how to start it.
+- **`onthesignal desktop`** goes further, like an Electron application: it starts the server
+  itself on a free port and shows the interface in a window with its own web engine (Qt
+  WebEngine, `pip install -e ".[desktop]"`); closing the window stops the server. The
+  AppImage does the same without any installation ([Installation](installation.qmd#appimage)).
+
+Browsers only install an application from `127.0.0.1`, `localhost` (an SSH tunnel is fine) or
+HTTPS (`[web] tls_cert`, `tls_key`).
+
 ### Working from another computer
 
 The server listens on the local machine only and has **no authentication**: anyone who can
@@ -46,7 +64,7 @@ do this on a trusted network, ideally with `[web] code_execution = false`.
 ## Layout
 
 ```text
-┌ header: project · search (/) · AI model · terminal and chat buttons ─────────────────────┐
+┌ header: project · search (/) · AI model · theme, terminal and chat buttons ──────────────┐
 │ activity │ OBJECTS          │ work area: one tab per signal, result,   │ AI CHAT          │
 │ bar      │ signals, results,│ file… — the chart on top, its results     │                  │
 │          │ figures,variables│ below                                     │                  │
@@ -67,7 +85,7 @@ do this on a trusted network, ideally with `[web] code_execution = false`.
 | Shift+Enter | run the selection (or the `# %%` cell) of the editor in the terminal |
 | Ctrl+` | show or hide the Python terminal |
 | Ctrl+Shift+I | show or hide the AI chat |
-| Drag | zoom on the abscissa of a chart (*Zoom* mode), or move along it (*Move* mode) |
+| Drag | zoom on the rectangle drawn (*Zoom* mode; a flat drag zooms the abscissa only), or move the chart (*Move* mode) |
 | Middle button drag, Shift + mouse wheel | move along the abscissa of a chart |
 | Ctrl + mouse wheel | zoom a chart in or out around the cursor |
 | Shift+drag | select a time window on a plot |
@@ -75,6 +93,11 @@ do this on a trusted network, ideally with `[web] code_execution = false`.
 
 The palette also runs complete commands, as in the console: `/noise S1 fmax=50` runs the
 analysis, `/noise` alone opens its form.
+
+The theme button of the header (or the palette, *Toggle dark mode*) chooses a light or dark
+theme, or that of the system (the default, `[web] theme`). The dark theme has its own colors
+for the charts, validated on a dark background (contrast, color-vision deficiencies); the
+editor and the terminal follow it.
 
 ### Navigating in a chart
 
@@ -84,14 +107,15 @@ Every chart has a toolbar at its top right, as the matplotlib windows:
 | --- | --- |
 | Home | full view (also a double-click on the chart) |
 | ← / → | previous view / next view: every zoom or move can be undone and redone |
-| Zoom (magnifier) | default mode: drag over a range to zoom in on it |
-| Move (four arrows) | drag the chart to move along the abscissa, as the *Pan* button of matplotlib |
+| Zoom (magnifier) | default mode: drag a rectangle to zoom in on it, as the *Zoom to rectangle* button of matplotlib; a drag flatter than about 30 pixels zooms the abscissa only |
+| Move (four arrows) | drag the chart to move it, as the *Pan* button of matplotlib |
 
 Whatever the mode, the middle button drags the chart, Shift + mouse wheel (or a horizontal
 swipe of a touchpad) moves along the abscissa, and Ctrl + mouse wheel zooms around the cursor;
-a plain wheel scrolls the page. The ordinate follows the visible data. The panels of a figure
-that share their abscissa (stacked signals, spectrogram and its time series) zoom and move
-together.
+a plain wheel scrolls the page. The ordinate follows the visible data until a rectangle zoom
+sets it; it then stays (and moves with a vertical drag in *Move* mode) until the full view.
+The panels of a figure that share their abscissa (stacked signals, spectrogram and its time
+series) zoom and move together along it; each keeps its own ordinate.
 
 ## Objects panel
 
@@ -102,12 +126,13 @@ The panel at the top left lists every object of the session; **one click display
 | Signals (`S1`, `S2`…) | time plot, with the statistics of the visible window and the properties below |
 | Results (`R1`, `R2`…) | the chart of the analysis and its results below |
 | Figures | matplotlib figures shown by the terminal or a script |
-| Variables | other variables of the Python terminal: numbers, arrays (plotted), lists… |
+| Variables | other variables of the Python terminal: numbers, arrays (plotted, or as a table for 2-D arrays), lists and dictionaries (as a tree)… |
 
 Right-click opens the actions (rename, analyze, export, compare, add to report, ask the AI,
-delete). Ctrl+click selects several signals, then *Plot selected signals together*, or several
-results, then *Compare selected results*. An object can be dragged into the chat or the
-editor to insert its name. Results get stable session names
+delete). The check boxes (or Ctrl+click) select several objects: a bar then offers *Overlay*
+(the checked signals in one panel), *Stack* (one panel per signal, common time axis) and
+*Compare* (results of the same analysis). An object can be dragged onto a time plot (the
+signal is added to it), into the chat or into the editor. Results get stable session names
 (`R1`, `R2`…) usable in the terminal (`R3["rms"]`); a terminal variable pointing to a result is
 shown as an alias (`R3 · r`).
 
@@ -121,9 +146,18 @@ shown as an alias (`R3 · r`).
 - **Plot.** The time plot uses relative seconds from the UTC instant written under the axis;
   the legend shows the absolute UTC time under the cursor. Zoom with the mouse: the visible
   window is reloaded at full resolution (an isolated spike of one sample always stays
-  visible), with one window width on each side so that it can be moved at once. The table below gives the mean, standard deviation, peak-to-peak, minimum and
+  visible), with one window width on each side so that it can be moved at once. When a signal
+  exceeds half of its full scale, the levels ±full scale/2 are drawn as red dashed lines. The table below gives the mean, standard deviation, peak-to-peak, minimum and
   maximum of the visible window. Each signal keeps its color in every plot of several
   signals and in the comparisons (`S1` blue, `S2` orange…).
+- **Several signals.** *Overlay* or *Stack* in the objects panel, *Add signal* above a plot,
+  or a signal dragged from the objects panel onto the plot. The chips above the plot remove a
+  signal; *Overlay* / *Stacked* switches the display. Each signal keeps its color; signals in
+  different units are overlaid with a warning (compare them in counts, or stack them).
+- **Changing the samples.** In the terminal, `S4.data = S4.data + 100` shifts `S4` by 100
+  counts (and `S4.data[:100] = 0` changes samples in place): the change is noted in the
+  history of the signal (`samples modified`) and every plot of `S4` is redrawn. `S5 = S4 + 100`
+  creates a shifted copy instead.
 - **Selection.** Shift+drag selects a window: *Analyze selection…* opens an analysis with
   `t_start` and `t_end` filled in; *Slice to new signal* creates a new signal.
 - **Properties.** Name, title, NSLC codes, unit, sensitivity (an expression such as
@@ -195,7 +229,9 @@ ots> /lnm S3                                        # graphical form, then resul
 - A block (`for`, `def`) continues on the next line; an empty line runs it.
 - Ctrl+C interrupts the running code (a long numpy call stops when it returns); Ctrl+R
   searches the history, shared with the console.
-- `plt.plot(...); plt.show()` opens the figure in a tab (*Figures* group).
+- `plt.plot(...); plt.show()` opens the figure in a tab (*Figures* group). `plot(x, y)` (or
+  `plot(y)`, `plot(x, y1, y2, labels=[...], title=...)`) draws numpy arrays in an interactive
+  chart instead; `plot(S1, S2)` overlays signals of the session.
 - `/` commands work as in the console; a command typed without parameters opens the
   graphical form. `/ai <question>` sends the question to the chat, `/edit_script` and
   `/context` open the editor.
@@ -210,6 +246,20 @@ announced), F5 runs a script of `scripts/` with its form, Shift+Enter runs the s
 current `# %%` cell in the terminal. A `.qmd` report has a *Render* button. A file changed on
 disk (by the terminal, an acquisition…) is reloaded unless you are editing it.
 
+Help for Python:
+
+- **Completion** (Ctrl+Space, or after a dot) knows the objects of the session: after `S1.`
+  the editor proposes `sensitivity`, `lnm`…; inside `noise(S1, ` the signature of `noise` is
+  shown with the parameter being typed; hovering a name shows its documentation.
+- **ruff** checks the file after a pause of typing: findings are underlined (and listed in
+  *Problems* when the file is saved). For a file of `scripts/`, the names of the session
+  (`S1`, `noise`) are reported as undefined, since a script receives its signals as
+  arguments; other files run in the terminal, where those names exist.
+- A `.toml` file is checked when saved; saving `onthesignal.toml` reads the configuration
+  again.
+- *Ask AI* puts the selection (or the current line, or `# %%` cell) in the chat with the name
+  of the file, ready for a question.
+
 ## AI chat
 
 The chat on the right drives the assistant described in [AI assistant](ai.qmd):
@@ -221,11 +271,25 @@ The chat on the right drives the assistant described in [AI assistant](ai.qmd):
 - code blocks of the answers can be copied, opened in the editor or run in the terminal (after
   confirmation);
 - a message starting with `/` runs the command in the terminal;
-- the first request to an online provider (Claude, ChatGPT) asks whether the summaries may be
+- the answer appears as it is generated; the reasoning of the model, when it gives one
+  (Qwen3, Claude), is in a folded *Reasoning* block; the header shows the tokens of the last
+  request against the context size (`10.2k / 16.4k tokens`);
+- `@` attaches objects to a question: type `@` for a list of the signals, results and files of
+  the project (`@S1`, `@R3`, `@context.md`). Signals and results are sent as summaries, never
+  as samples; text files with their text (20 000 characters at most);
+- *Profile* chooses one of the `[[ai.profiles]]` of the configuration; next to it, a green dot
+  tells that the model can be used, or a red cross why it cannot (server not reachable, model
+  not downloaded, API key missing);
+- the conversations are saved in `.onthesignal/chats/` of the project: the history button
+  reopens one (the assistant goes on with it) or exports it in Markdown;
+- *Allow for this chat* on a confirmation allows that kind of action (running a script…) until
+  the next *New chat*; the ↻ button asks the last question again for a new answer;
+- the first request to an online profile (Claude, ChatGPT) asks whether the summaries may be
   sent to it; the answer holds until the server stops. Ollama and servers of the local
   network are not asked, as the data stay on your network;
 - *Init* runs `/init`, *Context* opens `context.md`; the tune button changes the provider, the
-  model, the server URL and the context size for the session; *Stop* interrupts a request.
+  model, the server URL and the context size for the session; *Stop* interrupts a request,
+  even while the answer is being written.
 
 The model receives summaries of the signals and results, never the samples. API keys are read
 from the environment of the server only. With Ollama, set the context to at least 16 384
@@ -271,8 +335,10 @@ check boxes (*All*, *None*).
 ## Configuration
 
 The `[web]` section of the configuration is described in [Configuration](configuration.qmd).
-The *Settings* view shows the merged configuration and opens `onthesignal.toml` in the
-editor.
+The *Settings* view shows every value with its origin (default, global file, project file,
+session); a click on a value changes it for the session (TOML syntax: `8090`, `true`,
+`"text"`). Keys that onthesignal does not read are listed. *Edit onthesignal.toml* opens the
+project file in the editor; saving it checks it and reads the configuration again.
 
 ## Troubleshooting
 

@@ -46,10 +46,29 @@ The project follows [Semantic Versioning](https://semver.org/).
     and the level read under the cursor, a color bar, and the time series above it on a
     shared time axis;
   - navigation toolbar on every chart, as in the matplotlib windows: full view, previous and
-    next view (every zoom or move can be undone), *Zoom* mode (drag a range) and *Move* mode
-    (drag the chart along its abscissa); the middle button and Shift + wheel move, Ctrl +
-    wheel zooms around the cursor; a time plot receives one window width on each side of the
-    visible window, so that it moves at once;
+    next view (every zoom or move can be undone), *Zoom* mode (drag a rectangle to zoom on
+    both axes; a flat drag zooms the abscissa only) and *Move* mode (drag the chart); the
+    middle button and Shift + wheel move, Ctrl + wheel zooms around the cursor; a time plot
+    receives one window width on each side of the visible window, so that it moves at once;
+  - several signals in one plot: check boxes of the objects panel with *Overlay* and *Stack*,
+    *Add signal* above a plot, a signal dragged onto a plot, chips to remove one; a warning
+    when the overlaid signals have different units;
+  - installable as an application (PWA): manifest, icons, service worker with an offline page
+    when the server is not running;
+  - dark theme (header menu, palette, `[web] theme`), with chart colors validated on the dark
+    surface; Monaco and the Python terminal follow it;
+  - editor: completion, signature help and documentation from Jedi with the objects of the
+    session (`S1.` → `sensitivity`, `lnm`…), ruff findings underlined after a pause of typing
+    and listed in *Problems* at saving, TOML checked at saving (`onthesignal.toml` read again);
+  - chat: answers shown as they are generated, reasoning of the model in a folded block,
+    tokens used against the context size, `@` mentions attaching summaries of signals and
+    results or text files, conversations saved in `.onthesignal/chats/` (reopen, export in
+    Markdown), *Allow for this chat*, profile selector with an availability check;
+  - *Settings* view: every value with its origin, changes for the session, unknown keys;
+  - `plot(x, y…)` in the Python terminal: arrays in an interactive chart (`plot(S1, S2)`
+    overlays signals); 2-D arrays shown as a table, lists and dictionaries as a tree; levels
+    ±full scale/2 on a time plot when the signal comes near them; *Ask AI* on the selection
+    of the editor; *Regenerate* in the chat;
   - comparison of results of the same analysis (Ctrl+click in the objects panel, or
     *Compare with…*): one figure where each signal keeps its color, and a table with one
     column per result;
@@ -66,6 +85,23 @@ The project follows [Semantic Versioning](https://semver.org/).
     browser: Firefox, Chrome or Edge 121 or later, Safari 17.2 or later;
   - browser tests with Playwright and Google Chrome (`pip install -e ".[e2e]"`,
     `ONTHESIGNAL_E2E=1 pytest tests/test_web_e2e.py`).
+- `onthesignal desktop`: the web interface in its own window, like an Electron application
+  (Qt WebEngine, `pip install -e ".[desktop]"`): it starts the server on a free port and stops
+  it when the window is closed; downloads ask where to save, links to other sites open in the
+  browser. Without PySide6, a Chrome/Chromium window without browser bars.
+- AppImage built by `packaging/appimage/build_appimage.py` (python-appimage): one file with
+  Python 3.13, onthesignal and Qt WebEngine, which opens the desktop application (`--console`,
+  `web`, `acq`, `rt` and `run` give the other commands).
+- Signals: `S + k`, `k + S`, `S - k` and `k - S` shift the samples by `k` counts (new signal,
+  `offset(k)` too); `S.data = …` replaces the samples (e.g. `S4.data = S4.data + 100`), which is
+  noted in the history (`samples modified`); the console also notes changes made in place
+  (`S4.data[:100] = 0`). `Signal.data_version` tells the views that the samples changed.
+- AI profiles `[[ai.profiles]]` (`name`, `provider`, `model`, `base_url`, `context`) and
+  `[ai] profile`; `/model <profile>` in the console. The providers stream their answers
+  (`on_delta`), give the reasoning of the model and the tokens used.
+- Configuration: origin of each value (default, global, project, session), keys not read by
+  onthesignal, reloading of the files.
+- `ruff` added to the `[web]` dependencies (diagnostics of the editor).
 - `batch()` reports its progress (`on_progress`) and can be stopped between files
   (`should_stop`); `batch_summary()` turns the rows of a batch into a result for a report.
 - `RealtimeMonitor`: `latest(seconds)` returns the last samples of each channel,

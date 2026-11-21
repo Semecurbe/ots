@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>onthesignal</id>
+  <name>onthesignal</name>
+  <summary>Characterization of seismic acquisition chains</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <description>
+    <p>Digitizer self-noise, dynamic range, comparison with the Peterson noise models, sine
+    tests (SINAD, ENOB, SFDR, THD), SeedLink acquisition and real-time dashboard, Quarto
+    reports, Python terminal and AI assistant, in one window.</p>
+  </description>
+  <launchable type="desktop-id">onthesignal.desktop</launchable>
+  <categories>
+    <category>Science</category>
+  </categories>
+</component>

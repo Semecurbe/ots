@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=onthesignal
+GenericName=Seismic signal analysis
+Comment=Characterization of seismic acquisition chains: noise, NLNM, sine tests, SeedLink
+Exec=onthesignal %F
+Icon=onthesignal
+Terminal=false
+Categories=Science;Physics;
+Keywords=seismic;digitizer;noise;SeedLink;miniSEED;NLNM;
+StartupWMClass=onthesignal

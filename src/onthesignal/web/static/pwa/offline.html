@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>onthesignal — server not running</title>
+<style>
+  body { font-family: system-ui, sans-serif; background: #fcfcfb; color: #0b0b0b;
+         display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+  main { max-width: 34rem; padding: 2rem; }
+  h1 { font-size: 1.3rem; font-weight: 600; margin: 0 0 1rem; }
+  p { color: #52514e; line-height: 1.5; }
+  code { background: #f0efec; padding: 0.1rem 0.35rem; border-radius: 4px; }
+  button { margin-top: 1rem; background: #2a78d6; color: white; border: 0; border-radius: 4px;
+           padding: 0.5rem 1.2rem; font-size: 0.95rem; cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The onthesignal server is not running</h1>
+  <p>This window shows the web interface of a server running on your computer, or reached
+  through an SSH tunnel. Start it in the folder of your project:</p>
+  <p><code>onthesignal web</code></p>
+  <p>with the same port as when the application was installed (8080 by default), then
+  reload this window.</p>
+  <button onclick="location.reload()">Reload</button>
+</main>
+</body>
+</html>

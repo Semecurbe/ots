@@ -105,11 +105,14 @@ class Jobs:
 # ---------------------------------------------------------------------------------- objects
 @dataclass
 class FigureRecord:
-    """A matplotlib figure shown by the terminal or a script (``Figures`` group)."""
+    """A figure of the terminal or a script (``Figures`` group): a matplotlib image, or an
+    interactive chart of ``plot()`` (``spec`` and ``data`` of the µPlot component)."""
 
     name: str
     title: str
     png: bytes
+    spec: dict | None = None
+    data: dict | None = None
 
     def data_url(self) -> str:
         return "data:image/png;base64," + base64.b64encode(self.png).decode("ascii")
@@ -249,6 +252,8 @@ class WebState:
         self.terminal.console.quit_handler = lambda: self.terminal.write(
             "The Python terminal cannot quit the server: use Ctrl+C where `onthesignal web` "
             "runs.\n")
+        self.terminal.console.ns["plot"] = self.plot
+        self._initial_ns["plot"] = self.plot
         session.display_handler = self.display
 
     # ------------------------------------------------------------------ channels
@@ -342,6 +347,32 @@ class WebState:
         if records:
             self.bump()
         return records
+
+    def plot(self, *items: Any, title: str = "", labels: list[str] | None = None,
+             x_label: str = "x", y_label: str = "y") -> None:
+        """Interactive chart in a tab (web specification §10.3).
+
+        ``plot(y)``, ``plot(x, y)`` and ``plot(x, y1, y2, …)`` draw numpy arrays (``labels``
+        names the curves); ``plot(S1, S2)`` overlays signals of the session in one panel.
+        """
+        from .figures import arrays_figure
+
+        if items and all(isinstance(i, Signal) for i in items):
+            names = [s.name for s in items if s.name in self.session.signals]
+            if len(names) != len(items):
+                raise ParameterError("plot(): the signals must be in the session "
+                                     "(assign them to a variable first)")
+            self.to_origin({"type": "open", "what": "signals", "names": names,
+                            "overlay": True})
+            return
+        x = items[0] if len(items) > 1 else None
+        ys = list(items[1:] if len(items) > 1 else items)
+        spec, data = arrays_figure(title, x, ys, labels, x_label, y_label)
+        record = FigureRecord(f"Plot {next(self._figure_counter)}", title, b"",
+                              spec.to_dict(), data)
+        self.figures.append(record)
+        self.to_origin({"type": "open", "what": "figure", "name": record.name})
+        self.bump()
 
     def refresh_variables(self) -> None:
         """Inventory of the terminal namespace for the ``Variables`` group."""

@@ -173,3 +173,49 @@ def test_session_names_and_namespace(session):
     session.sync_namespace(ns)
     assert set(session.signals) == {"S1"}
     assert "S1" in session.list_text()
+
+
+def test_samples_can_be_replaced_and_offset():
+    s = Signal(np.arange(10.0), 10.0, station="T", channel="HHZ")
+    assert s.data_version == 0 and s.history == []
+    s.data = s.data + 100  # shift by 100 counts
+    assert s.data[0] == 100 and s.data_version == 1 and s.history == ["samples modified"]
+    s.data += 1  # augmented assignment goes through the setter too
+    assert s.data[0] == 101 and s.data_version == 2
+    assert s.history == ["samples modified"]  # not repeated
+    s.data = [1, 2, 3]
+    assert s.data.dtype == np.float64 and s.npts == 3
+    with pytest.raises(ParameterError):
+        s.data = np.zeros((2, 2))
+    with pytest.raises(ParameterError):
+        s.data = []
+    shifted = s + 10
+    assert shifted.data.tolist() == [11, 12, 13] and shifted.history[-1] == "offset +10 counts"
+    assert (10 + s).data.tolist() == [11, 12, 13]
+    assert (s - 0.5).history[-1] == "offset −0.5000 counts"
+    assert (10 - s).data.tolist() == [9, 8, 7]
+    assert s.data.tolist() == [1, 2, 3]  # the original is unchanged
+    assert sum([s, s]).data.tolist() == [2, 4, 6]  # sum() still starts from 0
+    with pytest.raises(TypeError):
+        _ = s + True
+
+
+def test_configuration_origins_session_and_reload(tmp_path, monkeypatch):
+    from onthesignal.core import config as config_module
+    from onthesignal.core.config import Config
+
+    monkeypatch.setattr(config_module, "GLOBAL_CONFIG", tmp_path / "global.toml")
+    (tmp_path / "global.toml").write_text('theme = "light"\n[web]\nport = 9000\n')
+    (tmp_path / "onthesignal.toml").write_text('[ai]\nmodel = "qwen"\n[analysis]\nfmax = 50.0\n')
+    config = Config.load(tmp_path)
+    assert config.origin("web.port") == "global" and config.origin("ai.model") == "project"
+    assert config.origin("ai.provider") == "default" and config.origin("nothing.here") == "unknown"
+    assert config.unknown_keys() == ["theme"]  # another program's key, ignored and reported
+    assert ("analysis.fmax", 50.0, "project") in config.items()
+    config.set("web.port", 9100)
+    assert config.origin("web.port") == "session"
+    (tmp_path / "onthesignal.toml").write_text('[ai]\nmodel = "llama"\n')
+    config.reload()
+    assert config.get("ai.model") == "llama" and config.get("web.port") == 9100
+    assert config.get("analysis.fmax") is None
+    assert Config({"web": {"port": 1}}).origin("web.port") == "given"
