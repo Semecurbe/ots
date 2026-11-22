@@ -7,6 +7,7 @@
 | v2.1 | 2026-11-17 | Intégration des décisions sur les points ouverts (§22) |
 | v2.2 | 2026-11-20 | Phase 2 : renvoi vers son cahier des charges, [`onthesignal_web.md`](onthesignal_web.md), et NiceGUI 4 (§1, §4.1, §21.2) |
 | v2.3 | 2026-11-20 | Opérateurs de décalage `S ± k` et remplacement des échantillons (`S.data = …`) noté dans l'historique (§5.1) |
+| v2.4 | 2026-11-21 | Archives SDS : plusieurs jours en un signal (`load_sds`, `sds_channels`, `/sds`), `load` d'une liste ou d'un motif de fichiers ; fichiers miniSEED reconnus par leur contenu (§6.1) |
 
 ## Lecture du document
 
@@ -313,6 +314,8 @@ Méthodes : `print()` (tableau), `plot()` (renvoie une figure), `show()`, `to_di
 - Sensibilité, unité, PE et métadonnées peuvent être fournies au chargement ou modifiées ensuite (`S1.sensitivity = 2.384e-6; S1.unit = "V"`).
 - Lecture de la sensibilité et de l'unité depuis un fichier StationXML, la sensibilité lue (counts par unité) étant inversée (§3.2) — P3.
 - Autres formats lus par ObsPy (SAC, GSE2…) — P3.
+- Un fichier miniSEED est reconnu par son contenu, quelle que soit son extension : les fichiers journaliers d'une archive SDS (`NET.STA.LOC.CHA.TYPE.ANNÉE.JOUR`, par exemple `XX.LORA.HA.BHE.D.2026.264`) n'ont pas d'extension `.mseed`. Leur titre garde le jour de l'année.
+- Plusieurs jours en un signal : `load` accepte une liste ou un motif de fichiers (`data/XX.LORA.HA.BHE.D.2026.2*`), dont les enregistrements sont fusionnés voie par voie ; un jour manquant est un trou, traité par `gaps`. `sds_channels(dossier)` donne les voies des fichiers journaliers d'un dossier et de ses sous-dossiers (premier et dernier jour, jours manquants, taille) ; `load_sds(dossier, voie, starttime, endtime)` charge une voie (ou un motif de voies) sur une fenêtre ; le fichier du jour voisin est lu aussi quand la fenêtre approche minuit à moins de 60 s. Commande `/sds dossier [voie [début [fin]]]`. Le titre couvre les jours de chaque signal (`…D.2026.264-266`) ; l'empreinte SHA-256 est celle des noms et empreintes des fichiers lus.
 
 ### 6.2 Fichiers texte multicolonnes — P1
 

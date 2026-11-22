@@ -533,6 +533,20 @@ def test_editor_help_from_jedi_and_ruff(tmp_path):
     markers = code.ruff_markers("x = noise(S1)\n", tmp_path / "a.py", defined=["noise", "S1"])
     assert markers == []  # names of the terminal are defined
     assert code.ruff_markers("x = (\n", tmp_path / "a.py")[0]["severity"] == "error"
+    # Format Document (ruff format) and Go to Definition (Jedi)
+    assert code.format_source("x=1\ny = [1,2,\n3]\n", tmp_path / "a.py") == \
+        "x = 1\ny = [1, 2, 3]\n"
+    assert code.format_source("def (:\n", tmp_path / "a.py") is None  # syntax error
+    source = "def scale(x):\n    return 2 * x\n\n\ny = scale(3)\n"
+    here = code.definition(source, 5, 6, {}, tmp_path / "a.py")
+    assert here == {"path": "", "line": 1, "column": 4}  # in the same file
+    (tmp_path / "helpers.py").write_text("def gain(x):\n    return 3 * x\n")
+    there = code.definition("from helpers import gain\n\ny = gain(2)\n", 3, 5, {},
+                            tmp_path / "use.py")
+    assert there["path"].endswith("helpers.py") and there["line"] == 1
+    assert "def gain" in there["text"]  # shown in place for a library
+    kind = code.definition("S1\n", 1, 1, namespace, tmp_path / "a.py")  # its type
+    assert kind is not None and kind["path"].endswith("signal.py")
 
 
 def test_chat_attachments_history_and_allow_for_this_chat(state, tmp_path):

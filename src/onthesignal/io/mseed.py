@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import re
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from obspy import Stream, read
+from obspy import Stream, Trace, UTCDateTime, read
 
 from ..core.errors import FileFormatError, ParameterError
 from ..core.signal import Signal, file_sha256, to_utc
@@ -82,7 +84,15 @@ def read_obspy(
         matching = f" matching {select!r}" if select else ""
         raise FileFormatError(f"No data in {path.name}{matching}")
 
-    sha = file_sha256(path)
+    return _stream_signals(stream, gaps, attrs, lambda tr: file_title(path), str(path),
+                           file_sha256(path), f"loaded from {path.name}")
+
+
+def _stream_signals(stream: Stream, gaps: str, attrs: dict[str, Any],
+                    title: Callable[[Trace], str], source: str, sha: str,
+                    history: str) -> list[Signal]:
+    """One signal per channel of ``stream``, its records merged under the gap policy;
+    ``title(trace)`` gives the title of each (continuous) trace."""
     signals: list[Signal] = []
     for trace_id in sorted({tr.id for tr in stream}):
         sub = stream.select(id=trace_id)
@@ -114,15 +124,103 @@ def read_obspy(
         for tr in traces:
             sig = Signal.from_trace(
                 tr,
-                title=file_title(path),
-                source=str(path),
+                title=title(tr),
+                source=source,
                 sha256=sha,
                 gaps=[dict(g) for g in gap_info],
-                history=[f"loaded from {path.name}"],
+                history=[history],
             )
             _apply_attrs(sig, attrs)
             signals.append(sig)
     return signals
+
+
+def span_title(paths: Sequence[Path]) -> str:
+    """Title of several day files of one channel: ``XX.LORA.HA.BHE.D.2026.252-264``
+    (``…2025.360-2026.005`` across a year); the name of the first file followed by the number
+    of files otherwise."""
+    names = sorted(p.name for p in paths)
+    if len(names) == 1:
+        return file_title(Path(names[0]))
+    parts = [n.split(".") for n in names]
+    if all(SDS_NAME.match(n) for n in names) and len({".".join(p[:5]) for p in parts}) == 1:
+        first, last = parts[0], parts[-1]
+        end = last[6] if first[5] == last[5] else f"{last[5]}.{last[6]}"
+        return f"{'.'.join(first[:7])}-{end}"
+    return f"{Path(names[0]).stem} (+{len(names) - 1} files)"
+
+
+def _covering(files: Sequence[Path], start: UTCDateTime, end: UTCDateTime) -> list[Path]:
+    """Day files whose day meets ``[start, end]`` (all the files when they are not day
+    files of an archive)."""
+    out = []
+    for path in files:
+        if not SDS_NAME.match(path.name):
+            return list(files)
+        year, doy = path.name.split(".")[5:7]
+        day = UTCDateTime(year=int(year), julday=int(doy))
+        if day <= end and day + 86400 > start:
+            out.append(path)
+    return out or list(files)
+
+
+def read_files(
+    paths: Sequence[str | Path],
+    fmt: str | None = None,
+    select: str | None = None,
+    starttime: Any = None,
+    endtime: Any = None,
+    gaps: str = "longest",
+    **attrs: Any,
+) -> list[Signal]:
+    """Read several miniSEED files (day files of an archive…) into one signal per channel.
+
+    The records of all the files are merged per channel under the ``gaps`` policy, as for one
+    file (:func:`read_obspy`): a missing day is a gap. ``starttime`` and ``endtime`` limit the
+    records read. The title of a signal spans its files (:func:`span_title`); its SHA-256 is
+    the digest of the names and digests of the files read, in order.
+    """
+    if gaps not in GAP_POLICIES:
+        raise ParameterError(f"gaps must be one of {', '.join(GAP_POLICIES)}")
+    files = sorted({Path(p) for p in paths})
+    if not files:
+        raise FileFormatError("No file to read")
+    for path in files:
+        if not path.is_file():
+            raise FileFormatError(f"File not found: {path}")
+    kwargs: dict[str, Any] = {}
+    if starttime is not None:
+        kwargs["starttime"] = to_utc(starttime)
+    if endtime is not None:
+        kwargs["endtime"] = to_utc(endtime)
+    stream = Stream()
+    used: list[Path] = []
+    for path in files:
+        try:
+            part = read(str(path), format=fmt, **kwargs) if fmt else read(str(path), **kwargs)
+        except Exception as exc:
+            raise FileFormatError(f"Cannot read {path.name}: {exc}") from exc
+        if select:
+            part = part.select(id=select)
+        if len(part):
+            stream += part
+            used.append(path)
+    if len(stream) == 0:
+        matching = f" matching {select!r}" if select else ""
+        raise FileFormatError(f"No data{matching} in the {len(files)} files for this window")
+    digest = hashlib.sha256()
+    for path in used:
+        digest.update(f"{path.name} {file_sha256(path)}\n".encode())
+    by_channel = {tr.id: [p for p in used if p.name.startswith(tr.id + ".")] for tr in stream}
+    folder = used[0].parent if len({p.parent for p in used}) == 1 else Path(".")
+    source = (f"{len(used)} files in {folder}: {used[0].name} … {used[-1].name}"
+              if len(used) > 1 else str(used[0]))
+    def title(tr: Trace) -> str:  # the days of each continuous segment
+        return span_title(_covering(by_channel.get(tr.id) or used, tr.stats.starttime,
+                                    tr.stats.endtime))
+
+    return _stream_signals(stream, gaps, attrs, title, source, digest.hexdigest(),
+                           f"loaded from {len(used)} files ({used[0].name} … {used[-1].name})")
 
 
 def _apply_attrs(sig: Signal, attrs: dict[str, Any]) -> None:

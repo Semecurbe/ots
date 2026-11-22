@@ -12,6 +12,7 @@
 | v1.7 | 2026-11-20 | Zoom par rectangle sur les deux axes (§5.1) ; superposition de signaux choisis par cases à cocher dans l'encart des objets (§6.1, §6.4) ; modification des échantillons depuis le terminal (§10.2) ; application installable (PWA), fenêtre de bureau et AppImage (§3.5) |
 | v1.8 | 2026-11-20 | Lot W9 réalisé : précisions sur le thème sombre (§4.8), l'aide à l'écriture de Python (§9.4), le chat (§11.2, §11.4, §11.5) et la vue `Settings` (§13) ; points P2 réalisés : niveaux ±PE/2 (§5.2), variables en tableau et en arborescence (§6.1), `plot()` (§10.3), `Ask AI about selection` (§9.6), `Regenerate` (§11.2) |
 | v1.9 | 2026-11-21 | Derniers points P2 réalisés : partage de la zone de travail (§4.3), tracé du bruit filtré de `noise` et valeurs période par période de `frequency` et `period` (§7.4, §7.5), mise en évidence réciproque des lignes de résultats et des éléments du graphique, tableaux triés et exportés, rechargement de la fenêtre zoomée d'un résultat (§7.5), vue différentielle des propositions de l'IA (§9.6), formules LaTeX et modification de la dernière question dans le chat (§11.2) |
+| v1.10 | 2026-11-21 | Évolution du §2.3 réalisée : navigation dans une archive SDS et chargement par voie et par fenêtre temporelle (vue *Files*, *Load several days…*) ; fichiers miniSEED reconnus par leur contenu ; cadre de la page sans espace sous l'en-tête. Points P3 réalisés : notification du navigateur à la fin d'une tâche longue (§4.9), seuil de signification de la cohérence relié à sa ligne de résultats (§7.4), mise en forme par ruff et navigation vers les définitions (§9.4), vue différentielle bloc par bloc (§9.6) |
 
 ## Lecture du document
 
@@ -104,7 +105,7 @@ Une instance du serveur sert **un utilisateur, un projet et une session**. Ce n'
 ### 2.3 Évolutions envisagées (pour mémoire)
 
 - Application de bureau (fenêtre native, NiceGUI `native=True`).
-- Navigation dans une archive SDS et chargement par voie et par fenêtre temporelle.
+- Navigation dans une archive SDS et chargement par voie et par fenêtre temporelle — réalisé (v1.10) : la vue *Files* propose *Load several days…* pour un dossier de fichiers journaliers (`NET.STA.LOC.CHA.D.ANNÉE.JOUR`) et *Open as SDS archive…* pour une arborescence `ANNÉE/RÉSEAU/STATION/VOIE.D/` ; la fenêtre liste les voies (premier et dernier jour, jours manquants, taille), estime la mémoire, et fusionne les jours choisis en un signal par voie (un jour manquant est un trou, traité par la politique `gaps`).
 - Sauvegarde et restauration de la session (v2 §5.3) ; plusieurs projets ou sessions par instance.
 - Export de l'historique de la session sous forme de script reproductible.
 - Intégration de git dans l'interface (état, différences).
@@ -283,7 +284,7 @@ Lorsqu'ils ont le focus, l'éditeur et le terminal gardent leurs propres raccour
 ### 4.9 Erreurs et notifications
 
 - Une erreur n'interrompt jamais l'interface : message clair en anglais (notification) et entrée dans `Problems`. Les erreurs de paramètres sont signalées sur le champ concerné.
-- La fin d'une tâche longue est notifiée dans l'interface ; notification du navigateur : P3.
+- La fin d'une tâche longue est notifiée dans l'interface ; notification du navigateur : P3, réalisée (v1.10) : au-delà de `[web] notify_after` secondes (15 par défaut, 0 = jamais), quand l'onglet qui a lancé la tâche n'est pas au premier plan, après autorisation donnée dans *Jobs* (*Notify me when a long task ends*).
 
 ## 5. Graphiques µPlot
 
@@ -482,7 +483,7 @@ L'onglet d'un résultat reprend l'affichage de la v2 : graphique interactif en h
 | `dynamic` | tableau de synthèse et contrôle de cohérence, puis un sous-onglet par figure (SINAD, SFDR, THD) | v2 §10.5 |
 | `frequency`, `period` | valeurs et dispersion période par période | v2 §11.1, §11.2 |
 | `delay50` | superposition des deux signaux autour d'un front, instants de passage, liste des Δt | v2 §11.3 |
-| `coherence` | cohérence de 0 à 1, axe des fréquences logarithmique ; P3 : seuil de signification | v2 §12.1 |
+| `coherence` | cohérence de 0 à 1, axe des fréquences logarithmique ; P3 : seuil de signification, réalisé (paramètre `significance`, niveau tracé et relié à sa ligne de résultats) | v2 §12.1 |
 | `spectrogram` | carte de couleurs (§5.4), trace temporelle en option | v2 §12.2 |
 
 ### 7.5 Résultats sous les graphiques (P1)
@@ -599,7 +600,7 @@ Comportement :
 
 - Complétion et aide à la signature fondées sur Jedi, qui voit l'API onthesignal **et les objets de la session** : après `S1.`, l'éditeur propose `sensitivity`, `lnm`… La documentation au survol provient des docstrings.
 - Diagnostics : erreurs de syntaxe signalées dès la frappe (P1, même vérification que v2 §15.5) ; analyse ruff à l'enregistrement ou après une pause de frappe, affichée en soulignés et dans `Problems` (P2).
-- Mise en forme par ruff et navigation vers les définitions : P3.
+- Mise en forme par ruff et navigation vers les définitions : P3, réalisées (v1.10) : bouton *Format* et *Format Document* (`ruff format`, configuration du projet) ; *Go to Definition* (Ctrl+clic, menu contextuel ; F12 dans la fenêtre de bureau, le navigateur le réservant à ses outils de développement) avec Jedi, un fichier du projet s'ouvrant à la ligne de la définition ; *Peek Definition* (Alt+F12) montre aussi le code des bibliothèques et le type d'un objet du terminal.
 - Réalisation : la complétion, l'aide à la signature et la documentation au survol sont demandées au serveur, qui répond avec Jedi sur l'espace de noms du terminal Python. ruff utilise la configuration du projet ; hors de `scripts/`, les noms du terminal (`S1`, `noise`…) sont déclarés comme définis, puisque ce code s'exécute dans le terminal.
 
 ### 9.5 Exécution depuis l'éditeur (P1)
@@ -611,7 +612,7 @@ Comportement :
 ### 9.6 Éditeur et IA (P2)
 
 - `Ask AI about selection` joint la sélection à un message du chat (§11).
-- Les modifications de code proposées par l'IA et les scripts générés (`/ai_script`) s'affichent dans une **vue différentielle** Monaco ; l'utilisateur les accepte ou les refuse (en bloc ; bloc par bloc : P3). Rien n'est enregistré ni exécuté sans son accord (v2 §17.6, §17.7).
+- Les modifications de code proposées par l'IA et les scripts générés (`/ai_script`) s'affichent dans une **vue différentielle** Monaco ; l'utilisateur les accepte ou les refuse (en bloc ; bloc par bloc : P3, réalisé en v1.10 par la flèche de chaque bloc entre les deux côtés, qui refuse ce bloc avant *Accept*). Rien n'est enregistré ni exécuté sans son accord (v2 §17.6, §17.7).
 - Réalisation (P2) : après `Ask AI` dans l'éditeur, chaque bloc de code de la réponse a un bouton *Review in <fichier>* : la vue différentielle compare le fichier et le fichier où le code demandé est remplacé par la proposition. La proposition (à droite) reste modifiable ; *Accept* l'applique à l'éditeur en une modification (annulée par Ctrl+Z, à enregistrer), *Reject* ou la fermeture de l'onglet laisse le fichier inchangé. Le script de `/ai_script` (terminal ou chat) s'ouvre dans la même vue avant toute écriture : *Accept* l'écrit dans `scripts/` et l'ouvre dans l'éditeur, *Reject* n'écrit rien ; le terminal attend la décision.
 
 ## 10. Terminal Python

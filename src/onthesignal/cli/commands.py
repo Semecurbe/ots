@@ -15,6 +15,7 @@ from .. import api
 from ..core.errors import ParameterError
 from ..core.params import Param, resolve_params
 from ..core.registry import Command, commands, get_command
+from ..core.units import fmt_num
 from ..io import GAP_POLICIES, detect_format
 from ..synthetic import NOISE_PARAMS, SINE_PARAMS
 
@@ -176,6 +177,48 @@ def cmd_load(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str], fl
     loaded = signals if isinstance(signals, list) else [signals]
     console.display.info(f"Loaded {len(loaded)} signal(s): "
                          + ", ".join(f"{s.name} ({s.id})" for s in loaded))
+
+
+@slash("sds", "Channels of an SDS archive, or load one over a time window (several days)",
+       "/sds <folder> [channel [start [end]]] [gaps=…] [name=…]", "Signals", "file")
+def cmd_sds(console: OnTheSignalConsole, pos: list[str], kv: dict[str, str], flags: set[str]
+            ) -> None:
+    """``/sds data/archive`` lists the channels of the day files (``NET.STA.LOC.CHA.D.YEAR.DAY``)
+    found in the folder; ``/sds data/archive XX.LORA.HA.BHE 2026-09-21 2026-09-23`` loads the
+    channel over the window, the days merged into one signal."""
+    if not pos:
+        raise ParameterError("Usage: /sds <folder> [channel [start [end]]]")
+    folder = pos[0]
+    if len(pos) == 1 and not kv:
+        rows = api.sds_channels(folder)
+        if not rows:
+            console.display.info(f"No day file (NET.STA.LOC.CHA.D.YEAR.DAY) in {folder}")
+            return
+        from rich.table import Table
+
+        table = Table(box=None, header_style="bold")
+        for key in rows[0]:
+            table.add_column(key)
+        for row in rows:
+            table.add_row(*(str(v) for v in row.values()))
+        console.display.console.print(table)
+        console.display.info("Load one: /sds <folder> <channel> [start] [end] [gaps=split]")
+        return
+    decl = {p.name: p for p in LOAD_OPTIONS}
+    allowed = {"gaps", "name", "title", "unit", "sensitivity", "full_scale"}
+    unknown = set(kv) - allowed
+    if unknown:
+        raise ParameterError(f"Unknown option(s): {', '.join(sorted(unknown))}")
+    options = {k: decl[k].coerce(v) for k, v in kv.items()}
+    name = options.pop("name", None)
+    signals = api.load_sds(folder, pos[1] if len(pos) > 1 else "*",
+                           pos[2] if len(pos) > 2 else None, pos[3] if len(pos) > 3 else None,
+                           name=name, **options)
+    console.sync()
+    loaded = signals if isinstance(signals, list) else [signals]
+    console.display.info(f"Loaded {len(loaded)} signal(s): " + ", ".join(
+        f"{s.name} ({s.id}, {s.starttime.strftime('%Y-%m-%d %H:%M')} + "
+        f"{fmt_num(s.duration / 3600)} h)" for s in loaded))
 
 
 def _make_signal(console: OnTheSignalConsole, func: Callable[..., Any],

@@ -31,6 +31,31 @@ much.
 Whatever the policy, the gaps are listed in `S.gaps`, shown by `S.print()` and recalled in
 every result.
 
+## Several days (SDS archives)
+
+An SDS archive keeps one miniSEED file per channel and per day, named
+`NET.STA.LOC.CHA.TYPE.YEAR.DAY`, usually in `<root>/YEAR/NET/STA/CHA.D/`. For a long-period
+noise model (`lnm`), several days are loaded into one signal per channel:
+
+```python
+sds_channels("data/archive")      # channels found (first and last day, missing days, size)
+load_sds("data/archive", "XX.LORA.HA.BHE", "2026-09-21", "2026-09-24")   # three days
+load_sds("data/archive", "*.BH?", "2026-09-21T06:00", "2026-09-21T12:00")  # several channels
+load("data/uploads/XX.LORA.HA.BHE.D.2026.2*")      # a pattern (or a list) of files, merged
+```
+
+The folder is searched for these names whatever its layout: day files copied or uploaded into
+one folder are found as well. `starttime` and `endtime` limit the records read (a day file may
+end a few seconds after midnight: the file of the neighbouring day is read too when the window
+comes near midnight). A missing day is a gap, handled by `gaps` as for one file: `longest`
+keeps the longest continuous segment, `split` gives one signal per continuous segment. The
+title spans the days of each signal (`XX.LORA.HA.BHE.D.2026.264-266`); its SHA-256 is the
+digest of the names and digests of the files read.
+
+In the console, `/sds data/archive` lists the channels and
+`/sds data/archive XX.LORA.HA.BHE 2026-09-21 2026-09-24 gaps=split` loads one. A day at
+250 Hz is 21.6 million samples, about 170 MB in memory.
+
 ## Signal title
 
 Every loaded signal gets a **title**: by default the file name without its extension

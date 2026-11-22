@@ -68,6 +68,43 @@ function registerPython(monaco) {
       return text ? { contents: [{ value: text }] } : null;
     },
   });
+  // Format Document (Shift+Alt+F, context menu): ruff format on the server.
+  monaco.languages.registerDocumentFormattingEditProvider("python", {
+    provideDocumentFormattingEdits: async (model) => {
+      const editor = owner(model);
+      const text = editor && (await editor.request("format", { code: model.getValue() }));
+      return typeof text === "string" ? [{ range: model.getFullModelRange(), text }] : [];
+    },
+  });
+  // Go to Definition (F12, Ctrl+click) and Peek Definition (Alt+F12) with Jedi. A definition
+  // in another file gets a read-only model of that file; opening it calls the editor opener.
+  monaco.languages.registerDefinitionProvider("python", {
+    provideDefinition: async (model, position) => {
+      const editor = owner(model);
+      const loc = editor && (await editor.request("definition", where(model, position)));
+      if (!loc) return null;
+      let uri = model.uri;
+      if (loc.path) {
+        uri = monaco.Uri.file(loc.path);
+        if (!monaco.editor.getModel(uri)) monaco.editor.createModel(loc.text || "", "python", uri);
+      }
+      const column = (loc.column || 0) + 1;
+      return { uri, range: new monaco.Range(loc.line, column, loc.line, column) };
+    },
+  });
+  monaco.editor.registerEditorOpener({
+    openCodeEditor(source, resource, selectionOrPosition) {
+      // The same file: Monaco moves the cursor itself. Another file: opened by the server.
+      const editor = owner(source.getModel());
+      if (!editor || resource.scheme !== "file" ||
+          resource.toString() === source.getModel().uri.toString()) return false;
+      const where = selectionOrPosition || {};
+      editor.$emit("open_definition", {
+        path: resource.path, line: where.startLineNumber || where.lineNumber || 1,
+      });
+      return true;
+    },
+  });
 }
 
 function loadMonaco(base) {
@@ -103,14 +140,18 @@ export default {
     startDirty: { type: Boolean, default: false },
     // Diff view: the current text, compared with "value" (the proposal).
     original: { type: String, default: null },
+    // Line shown when the editor opens (a definition opened from another file).
+    startLine: { type: Number, default: 0 },
   },
   async mounted() {
     const monaco = await loadMonaco(this.baseUrl);
     const theme = document.body.classList.contains("body--dark") ? "vs-dark" : "vs";
     if (this.original !== null && this.original !== undefined) {
+      // The arrows between the two sides undo one block of the proposal (block by block).
       this.diff = monaco.editor.createDiffEditor(this.$el, {
         automaticLayout: true, fontSize: 13, readOnly: this.readOnly, originalEditable: false,
-        renderSideBySide: true, scrollBeyondLastLine: false, minimap: { enabled: false }, theme,
+        renderSideBySide: true, renderMarginRevertIcon: true, scrollBeyondLastLine: false,
+        minimap: { enabled: false }, theme,
       });
       this.models = [monaco.editor.createModel(this.original, this.language),
         monaco.editor.createModel(this.value || "", this.language)];
@@ -131,6 +172,7 @@ export default {
         theme,
       });
     }
+    if (this.startLine > 0) this.revealLine(this.startLine);
     this.markSaved();
     if (this.startDirty) {
       this.savedVersion = -1; // modified until saved, even after undoing every change
@@ -174,6 +216,16 @@ export default {
       if (!this.editor) return;
       this.editor.setValue(text);
       this.markSaved();
+    },
+    format() {
+      // Format Document (ruff format through the provider of the Python language).
+      if (this.editor) this.editor.getAction("editor.action.formatDocument").run();
+    },
+    revealLine(line) {
+      if (!this.editor) return;
+      this.editor.revealLineInCenter(line);
+      this.editor.setPosition({ lineNumber: line, column: 1 });
+      this.editor.focus();
     },
     applyText(text) {
       // Replace the whole text in one edit, undone by Ctrl+Z (a change accepted in a diff

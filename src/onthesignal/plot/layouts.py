@@ -414,11 +414,12 @@ def coherence_layout(result: Any) -> FigureSpec:
     hlines = []
     if "threshold" in result.extra:
         hlines.append(HLine(float(result.extra["threshold"]), "significance level", "ink2",
-                            [6, 4]))
+                            [6, 4], ref="threshold"))
     panel = Panel("coherence", _axis(c, "x"), Axis("Coherence", "", "linear", 0.0, 1.02),
                   [Series("coherence", "coherence")], hlines=hlines)
     return FigureSpec(result.title, [panel], results=ResultsSpec(["mean_coherence"], [
-        ("Coherence", ["mean_coherence", "band", "n_averages", "df"])]))
+        ("Coherence", ["mean_coherence", "threshold", "band", "n_averages", "df"])],
+        links={"threshold": "threshold"}))
 
 
 def _cell_edges(centers: np.ndarray, step: float | None = None) -> tuple[float, float]:

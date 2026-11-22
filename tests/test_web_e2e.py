@@ -378,8 +378,68 @@ def test_chat_formulas_and_edit_of_the_last_question(page):
 def test_sds_day_file_is_loaded_from_the_files_view(page):
     """A file named as in an SDS archive (no .mseed extension) is loaded, not edited."""
     shutil.copy(DATA, PROJECT["path"] / "data" / "XX.SDS.00.HHZ.D.2026.264")
-    page.locator(".q-item:has-text('data')").first.click()
+    page.locator(".q-item:has(.q-item__label:text-is('data'))").first.click()  # the folder
     page.locator(".q-item:has-text('XX.SDS.00.HHZ.D.2026.264')").first.click()
     page.wait_for_selector(".q-item__label:has-text('XX.SDS.00.HHZ.D.2026.264')", timeout=20000)
     assert page.locator("text=larger than the editor limit").count() == 0
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+def test_sds_archive_dialog_loads_several_days(page):
+    """Two consecutive day files of a folder: loaded together in one signal."""
+    import numpy as np
+    from obspy import Stream, Trace, UTCDateTime
+
+    folder = PROJECT["path"] / "data" / "e2e_archive"
+    folder.mkdir(parents=True, exist_ok=True)
+    for doy in (100, 101):
+        tr = Trace(np.arange(86400, dtype=np.int32),
+                   header={"network": "XX", "station": "E2E", "location": "00",
+                           "channel": "BHZ", "sampling_rate": 1.0,
+                           "starttime": UTCDateTime(year=2026, julday=doy)})
+        Stream([tr]).write(str(folder / f"XX.E2E.00.BHZ.D.2026.{doy:03d}"), format="MSEED",
+                           encoding="INT32", reclen=512)
+    page.locator(".q-item:has(.q-item__label:text-is('data'))").first.click()  # the folder
+    page.locator(".q-item:has(.q-item__label:text-is('e2e_archive'))").first.click()
+    page.get_by_text("Load several days…").click()
+    page.wait_for_selector("text=MB in memory", timeout=15000)  # estimate of the window
+    page.locator(".q-dialog button:has-text('Load')").last.click()
+    page.wait_for_selector(".q-item__label:has-text('XX.E2E.00.BHZ.D.2026.100-101')",
+                           timeout=20000)
+    assert page.errors == []  # type: ignore[attr-defined]
+
+
+def test_editor_format_definition_and_long_task_notification(page):
+    """Format Document (ruff format), Go to Definition (F12, Jedi) and the notification of the
+    browser at the end of a long task (its Notification API replaced by a recorder)."""
+    (PROJECT["path"] / "e2e_defs.py").write_text("def scale(x):\n    return 2*x\n\n\n"
+                                                 "y = scale(3)\n", encoding="utf-8")
+    page.evaluate("""() => {
+        window.__notes = [];
+        window.Notification = function (title, opts) { window.__notes.push(title); };
+        window.Notification.permission = "granted";
+        document.hasFocus = () => false;
+    }""")
+    page.locator("button:has(i:has-text('refresh'))").first.click()  # the new file
+    page.locator(".q-item:has(.q-item__label:text-is('e2e_defs.py'))").first.click()
+    page.wait_for_selector(".monaco-editor .view-lines", timeout=20000)
+    editor = ("window.monaco.editor.getEditors().find((e) => e.getModel() && "
+              "e.getModel().getValue().includes('def scale'))")
+    page.wait_for_function(f"() => window.monaco && {editor}", timeout=20000)
+    page.get_by_role("button", name="Format").click()  # ruff format on the server
+    page.wait_for_function(f"() => {editor}.getValue().includes('return 2 * x')", timeout=10000)
+    page.evaluate(f"""() => {{
+        const e = {editor};
+        e.setPosition({{lineNumber: 5, column: 7}});
+        e.focus();
+        e.trigger('e2e', 'editor.action.revealDefinition', {{}});
+    }}""")
+    page.wait_for_function(f"() => {editor}.getPosition().lineNumber === 1", timeout=10000)
+    _type_in_terminal(page, "session.config.set('web.notify_after', 0.001)\n")
+    time.sleep(1)
+    page.locator(".q-item:has(.q-item__label:text-is('data'))").first.click()
+    page.locator(f".q-item:has(.q-item__label:text-is('{DATA.name}'))").first.click()
+    page.wait_for_function("() => window.__notes.length > 0", timeout=20000)
+    assert page.evaluate("window.__notes[0]").startswith("onthesignal — load")
+    _type_in_terminal(page, "session.config.set('web.notify_after', 15.0)\n")
     assert page.errors == []  # type: ignore[attr-defined]

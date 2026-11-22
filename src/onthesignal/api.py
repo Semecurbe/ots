@@ -140,14 +140,17 @@ SINAD, SFDR, THD = sinad, sfdr, thd
 
 
 # ---------------------------------------------------------------------------------- signals
-def load(path: str | Path, fmt: str | None = None, name: str | Sequence[str] | None = None,
-         **options: Any) -> Signal | list[Signal]:
+def load(path: str | Path | Sequence[str | Path], fmt: str | None = None,
+         name: str | Sequence[str] | None = None, **options: Any) -> Signal | list[Signal]:
     """Load a file and register its signals in the session (``S1``, ``S2``... by default).
 
     Parameters
     ----------
-    path : str or Path
-        miniSEED file (``.mseed``), text file (``.txt``, ``.csv``...) or any ObsPy format.
+    path : str, Path or list
+        miniSEED file (``.mseed``, or recognized by its content), text file (``.txt``,
+        ``.csv``...) or any ObsPy format. A list of files or a pattern
+        (``"data/XX.LORA.HA.BHE.D.2026.*"``) merges their records into one signal per channel
+        (several days of an archive); a missing day is a gap (``gaps`` option).
     fmt : str, optional
         Force the format (``mseed`` or ``txt``).
     name : str or list of str, optional
@@ -162,8 +165,17 @@ def load(path: str | Path, fmt: str | None = None, name: str | Sequence[str] | N
     -------
     Signal or list of Signal
     """
-    session = get_session()
     signals = read(path, fmt, **options)
+    _register(signals, name)
+    history = path if isinstance(path, (str, Path)) else [str(p) for p in path]
+    get_session().history.append(f"load({str(history)!r})" if isinstance(history, (str, Path))
+                                 else f"load({history!r})")
+    return signals[0] if len(signals) == 1 else signals
+
+
+def _register(signals: list[Signal], name: str | Sequence[str] | None) -> None:
+    """Add loaded signals to the session, under ``name`` (``S1``, ``S2``… by default)."""
+    session = get_session()
     if name is None:
         names: list[str | None] = [None] * len(signals)
     elif isinstance(name, str):
@@ -174,7 +186,58 @@ def load(path: str | Path, fmt: str | None = None, name: str | Sequence[str] | N
             raise ParameterError(f"{len(signals)} signals loaded but {len(names)} names given")
     for sig, n in zip(signals, names, strict=True):
         session.add_signal(sig, n)
-    session.history.append(f"load({str(path)!r})")
+
+
+def sds_channels(folder: str | Path) -> list[dict[str, Any]]:
+    """Channels of the day files of an SDS archive, or of a folder of day files.
+
+    Day files are named ``NET.STA.LOC.CHA.TYPE.YEAR.DAY`` (``XX.LORA.HA.BHE.D.2026.264``);
+    they are found in ``folder`` and its subfolders. One row per channel: first and last day,
+    number of days, missing days between them, size in MB.
+    """
+    from .io.archive import scan
+
+    return [c.row() for c in scan(folder).values()]
+
+
+def load_sds(folder: str | Path, channel: str = "*", starttime: Any = None,
+             endtime: Any = None, name: str | Sequence[str] | None = None,
+             **options: Any) -> Signal | list[Signal]:
+    """Load channels of an SDS archive over a time window: several days in one signal.
+
+    Parameters
+    ----------
+    folder : str or Path
+        Root of the archive (``YEAR/NET/STA/CHA.D/`` below it) or a folder of day files.
+    channel : str
+        Channel code or pattern: ``"XX.LORA.HA.BHE"``, ``"*.BH?"``; every channel by default.
+    starttime, endtime : optional
+        Window (UTC); the whole span of the files by default.
+    name : str or list of str, optional
+        Session name(s) of the signal(s).
+    **options
+        ``gaps`` (a missing day is a gap: ``longest`` by default, ``split``, ``fill``,
+        ``error``), ``title``, ``unit``, ``sensitivity``, ``full_scale``, ``metadata``.
+
+    Examples
+    --------
+    >>> load_sds("data/uploads", "XX.LORA.HA.BHE", "2026-09-21", "2026-09-23")  # doctest: +SKIP
+    """
+    from .io.archive import scan, select_channels
+    from .io.mseed import read_files
+
+    options.pop("select", None)
+    signals: list[Signal] = []
+    for item in select_channels(scan(folder), channel):
+        files = item.files_for(starttime, endtime)
+        if not files:
+            raise ParameterError(f"{item.channel} has no day file between {starttime} and "
+                                 f"{endtime}")
+        signals += read_files(files, select=item.channel, starttime=starttime, endtime=endtime,
+                              **options)
+    _register(signals, name)
+    get_session().history.append(
+        f"load_sds({str(folder)!r}, {channel!r}, {str(starttime)!r}, {str(endtime)!r})")
     return signals[0] if len(signals) == 1 else signals
 
 
@@ -341,6 +404,7 @@ __all__ = [
     "list_sig",
     "lnm",
     "load",
+    "load_sds",
     "make_noise",
     "make_sine",
     "noise",
@@ -350,6 +414,7 @@ __all__ = [
     "report",
     "rm_sig",
     "run",
+    "sds_channels",
     "sfdr",
     "show",
     "signal_result",

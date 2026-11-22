@@ -241,6 +241,147 @@ async def load_file_dialog(wb: Workbench, path: Path, options: bool = False) -> 
     wb.load_files([path], values)
 
 
+#: Gap policies offered for several days (a missing day is a gap).
+ARCHIVE_GAPS = {"longest": "keep the longest continuous segment",
+                "split": "one signal per continuous segment",
+                "fill": "fill the gaps by interpolation (not for noise measurements)",
+                "error": "refuse a window with gaps"}
+
+
+def _sampling_rate(path: Path) -> float | None:
+    """Sampling rate written in the first records of a day file (header only)."""
+    from obspy import read
+
+    try:
+        stream = read(str(path), headonly=True)
+    except Exception:
+        return None
+    return float(stream[0].stats.sampling_rate) if len(stream) else None
+
+
+def _window(channel: Any, start: Any, end: Any) -> tuple[Any, Any] | None:
+    """``[start, end]`` as instants (the span of the channel for empty fields), or None."""
+    from ...core.signal import to_utc
+
+    try:
+        low = to_utc(start) if start else channel.first
+        high = to_utc(end) if end else channel.last
+    except Exception:
+        return None
+    return (low, high) if high > low else None
+
+
+def window_missing(channel: Any, start: Any, end: Any) -> list[Any]:
+    """Missing days of a channel inside the window."""
+    span = _window(channel, start, end)
+    return [] if span is None else [d for d in channel.missing_days()
+                                    if span[0] < d + 86400 and d < span[1]]
+
+
+def archive_estimate(channel: Any, rate: float | None, start: Any, end: Any) -> str:
+    """Days, missing days and memory of a channel loaded over ``[start, end]``."""
+    span = _window(channel, start, end)
+    if span is None:
+        return (f"{channel.channel}: give a window such as 2026-09-21 → 2026-09-23 or "
+                "2026-09-21T06:00:00, its end after its start")
+    low, high = span
+    days = [f for f in channel.files if f.day < high and f.day + 86400 > low]
+    covered = sum(min(high, f.day + 86400) - max(low, f.day) for f in days)
+    missing = window_missing(channel, start, end)
+    text = f"{channel.channel}: {len(days)} day(s) of data in the window"
+    if missing:
+        text += f", {len(missing)} missing"
+    if rate:
+        samples = covered * rate
+        text += (f" · ≈ {samples / 1e6:.1f} M samples at {rate:g} Hz · "
+                 f"≈ {samples * 8 / 1e6:,.0f} MB in memory")
+    return text
+
+
+async def archive_dialog(wb: Workbench, folder: Path) -> None:
+    """Channels of an SDS archive (or of a folder of day files), loaded over a time window:
+    several days merged into one signal per channel."""
+    from nicegui import run
+
+    from ...core.errors import FileFormatError
+    from ...io.archive import scan
+
+    try:
+        channels = await run.io_bound(scan, folder)
+    except (ParameterError, FileFormatError) as exc:
+        ui.notify(str(exc), type="warning")
+        return
+    if not channels:
+        ui.notify(f"No day file (NET.STA.LOC.CHA.D.YEAR.DAY) in {folder.name}", type="warning")
+        return
+    rates: dict[str, float | None] = {}
+    rows = [c.row() for c in channels.values()]
+    columns = [{"name": k, "label": k.replace("_", " "), "field": k, "sortable": True,
+                "align": "left" if k in ("channel", "from", "to") else "right"} for k in rows[0]]
+    try:
+        shown = folder.relative_to(wb.root).as_posix()
+    except ValueError:
+        shown = str(folder)
+    with ui.dialog() as dialog, ui.card().classes("w-[900px] max-w-[95vw]"):
+        ui.label(f"SDS archive — {shown}").classes("text-h6")
+        ui.label("Day files NET.STA.LOC.CHA.D.YEAR.DAY of this folder and its subfolders. The "
+                 "days chosen are merged into one signal per channel; a missing day is a gap.") \
+            .classes("text-caption text-grey-7")
+        table = ui.table(columns=columns, rows=rows, row_key="channel", selection="multiple") \
+            .props("dense flat bordered").classes("w-full max-h-[40vh]")
+        with ui.row().classes("w-full items-end gap-2"):
+            start = ui.input("Start (UTC)", placeholder="2026-09-21 or 2026-09-21T06:00:00") \
+                .props("dense outlined clearable").classes("w-56")
+            end = ui.input("End (UTC)", placeholder="whole span when empty") \
+                .props("dense outlined clearable").classes("w-56")
+            gaps = ui.select(ARCHIVE_GAPS, value="longest", label="Missing days and gaps") \
+                .props("dense outlined options-dense").classes("grow")
+        estimate = ui.column().classes("w-full gap-0")
+
+        async def update(span: bool = False) -> None:
+            chosen = [channels[r["channel"]] for r in table.selected]
+            if span and chosen:  # the window follows the selection
+                start.value = min(c.first for c in chosen).strftime("%Y-%m-%d")
+                end.value = max(c.last for c in chosen).strftime("%Y-%m-%d")
+            for c in chosen:
+                if c.channel not in rates:
+                    rates[c.channel] = await run.io_bound(_sampling_rate, c.files[0].path)
+            estimate.clear()
+            with estimate:
+                if not chosen:
+                    ui.label("Choose one or several channels.").classes("text-caption")
+                for c in chosen:
+                    ui.label(archive_estimate(c, rates.get(c.channel), start.value,
+                                              end.value)).classes("text-caption")
+                if chosen and gaps.value == "longest" and any(
+                        window_missing(c, start.value, end.value) for c in chosen):
+                    ui.label("With missing days, only the longest continuous segment is kept: "
+                             "choose consecutive days, or one signal per continuous segment.") \
+                        .classes("text-caption text-amber-10")
+
+        table.on_select(lambda _: update(span=True))
+        start.on_value_change(lambda _: update())
+        end.on_value_change(lambda _: update())
+        gaps.on_value_change(lambda _: update())
+        with ui.row().classes("w-full justify-end"):
+            ui.button("Cancel", on_click=lambda: dialog.submit(None)).props("flat")
+            ui.button("Load", icon="download",
+                      on_click=lambda: dialog.submit([r["channel"] for r in table.selected])) \
+                .props("unelevated")
+    if len(rows) == 1:
+        table.selected = list(rows)
+    dialog.open()
+    await update(span=True)
+    answer = await dialog
+    dialog.delete()
+    if not answer:
+        if answer is not None:
+            ui.notify("Choose at least one channel", type="warning")
+        return
+    wb.load_archive(folder, answer, start.value or None, end.value or None,
+                    {"gaps": gaps.value})
+
+
 async def text_wizard(path: Path) -> dict | None:
     """Text file import with a preview of the first lines (v2 §6.2)."""
     try:

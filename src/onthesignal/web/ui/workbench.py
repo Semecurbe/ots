@@ -8,6 +8,7 @@ to open, notifications, questions) and follows ``session.version`` to refresh th
 from __future__ import annotations
 
 import functools
+import json
 import threading
 import time
 from collections.abc import Callable
@@ -22,6 +23,7 @@ from ...cli.completion import fuzzy_match
 from ...core.errors import ParameterError
 from ...core.registry import commands
 from ...io import is_signal_file
+from .. import pwa
 from ..security import confine
 from ..state import WebState
 from .chat import ChatPanel
@@ -137,6 +139,21 @@ THEME_SCRIPT = """<script>
 })();
 </script>"""
 
+#: Notification of the browser at the end of a long task (§4.9), when the tab is not in front.
+NOTIFY_SCRIPT = """<script>
+window.otsNotify = (title, body, tag) => {
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  if (document.visibilityState === "visible" && document.hasFocus()) return;
+  const note = new Notification(title, { body, tag, icon: "%s/icon-192.png" });
+  note.onclick = () => { window.focus(); note.close(); };
+};
+window.otsAskNotifications = async () => {
+  if (!("Notification" in window)) return "unsupported";
+  return Notification.permission === "default" ? await Notification.requestPermission()
+    : Notification.permission;
+};
+</script>"""
+
 #: Height of the header and the footer in --ots-frame (they may wrap on a narrow window).
 FRAME_SCRIPT = """<script>
 (() => {
@@ -201,6 +218,8 @@ class Workbench:
                          "e.preventDefault(); }, true);</script>")
         ui.add_body_html(THEME_SCRIPT % json.dumps(TERMINAL_THEMES))
         ui.add_body_html(FRAME_SCRIPT)
+        ui.add_body_html(NOTIFY_SCRIPT % pwa.PWA_URL)
+        self.notified: set[int] = set()
         theme = str(self.state.config.get("web.theme", "auto")).lower()
         self.dark = ui.dark_mode({"dark": True, "light": False}.get(theme))
         self.layout_root = ui.element("div").classes("w-full")
@@ -619,6 +638,22 @@ class Workbench:
         self.state.jobs.start("load " + ", ".join(p.name for p in paths), work, kind="load",
                               client=self.id, on_done=self.report_failure)
 
+    def load_archive(self, folder: Path, channels: list[str], starttime: Any, endtime: Any,
+                     options: dict) -> None:
+        """Load channels of an SDS archive over a time window (one signal per channel)."""
+        def work(job: Any) -> Any:
+            loaded = []
+            for code in channels:
+                out = api.load_sds(folder, code, starttime, endtime, **options)
+                loaded += out if isinstance(out, list) else [out]
+            if loaded:
+                self.state.to_origin({"type": "open", "what": "signal", "name": loaded[0].name})
+            return loaded
+
+        label = channels[0] if len(channels) == 1 else f"{len(channels)} channels"
+        self.state.jobs.start(f"load {label} of {folder.name}", work, kind="load",
+                              client=self.id, on_done=self.report_failure)
+
     def render_report(self, qmd: Path) -> None:
         from ...report import render_report
 
@@ -847,6 +882,7 @@ class Workbench:
         elif kind == "job":
             self._refresh_jobs()
             self._refresh_status()
+            self._notify_job(event.get("id"))
         elif kind == "form":
             self.spawn(launch_analysis, self, event["command"], event.get("signals"),
                        event["request"])
@@ -887,9 +923,37 @@ class Workbench:
         for line in history[-2000:]:
             self.history_log.push(line)
 
+    def _notify_job(self, job_id: Any) -> None:
+        """A long task of this tab ended: notification of the browser when the tab is not in
+        front (``[web] notify_after`` seconds, 0 = never; permission asked in *Jobs*)."""
+        job = next((j for j in self.state.jobs.items if j.id == job_id), None)
+        limit = float(self.state.config.get("web.notify_after", 15.0) or 0)
+        if job is None or job.state == "running" or job.client != self.id or not limit \
+                or job.duration < limit or job.id in self.notified:
+            return
+        self.notified.add(job.id)
+        title = f"onthesignal — {job.name}"
+        body = {"done": "finished", "failed": f"failed: {job.error}",
+                "cancelled": "stopped"}.get(job.state, job.state) + f" in {job.duration:.0f} s"
+        ui.run_javascript(f"window.otsNotify({json.dumps(title)}, {json.dumps(body)}, "
+                          f"{json.dumps(f'ots-job-{job.id}')})")
+
+    async def ask_notifications(self) -> None:
+        answer = await ui.run_javascript("window.otsAskNotifications()", timeout=60)
+        text = {"granted": "The browser will notify the end of long tasks",
+                "denied": "Notifications are refused by the browser (see its settings)",
+                "unsupported": "This browser cannot notify"}.get(str(answer), str(answer))
+        ui.notify(text, type="positive" if answer == "granted" else "warning")
+
     def _refresh_jobs(self) -> None:
         self.jobs_box.clear()
         with self.jobs_box:
+            with ui.row().classes("w-full items-center no-wrap gap-1"):
+                ui.label("Tasks of the server").classes("text-caption text-weight-bold grow")
+                ui.button("Notify me when a long task ends", icon="notifications",
+                          on_click=self.ask_notifications).props("flat dense no-caps size=sm") \
+                    .tooltip("The browser notifies the end of a task longer than "
+                             "[web] notify_after seconds when this tab is not in front")
             for job in reversed(self.state.jobs.items[-30:]):
                 with ui.row().classes("w-full items-center no-wrap gap-2"):
                     icon = {"running": "hourglass_top", "done": "check_circle",

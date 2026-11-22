@@ -15,7 +15,7 @@ from ...core.errors import ParameterError
 from ...core.registry import commands
 from ...io import SDS_NAME, is_signal_file
 from ..security import confine, safe_name
-from .dialogs import ask_text, confirm, load_file_dialog
+from .dialogs import archive_dialog, ask_text, confirm, load_file_dialog
 
 if TYPE_CHECKING:
     from .workbench import Workbench
@@ -107,6 +107,18 @@ class FilesView:
                 ui.label(str(exc)).classes("text-negative text-caption")
             return
         with self.box:
+            days = [e for e in entries if SDS_NAME.match(e.name)]
+            if days:  # day files of an archive: several days in one signal
+                channels = {".".join(e.name.split(".")[:4]) for e in days}
+                with ui.item(on_click=lambda: self.wb.spawn(archive_dialog, self.wb,
+                                                            self.cwd)) \
+                        .props("dense clickable").classes("w-full q-px-sm bg-blue-1"):
+                    with ui.item_section().props("avatar"):
+                        ui.icon("date_range", color="primary", size="18px")
+                    with ui.item_section():
+                        ui.item_label("Load several days…").classes("text-body2")
+                        ui.item_label(f"{len(days)} day files of {len(channels)} channel(s) "
+                                      "(SDS)").props("caption")
             for entry in entries:
                 if entry.name.startswith(".") or entry.name == "__pycache__":
                     continue
@@ -134,6 +146,8 @@ class FilesView:
                         ui.menu_item("Load with options…", lambda p=path: self.load(p, True))
                     ui.menu_item("Download", lambda p=path: ui.download.file(p))
                 else:
+                    ui.menu_item("Open as SDS archive…", lambda p=path: self.wb.spawn(
+                        archive_dialog, self.wb, p))
                     ui.menu_item("Download as zip", lambda p=path: self.download_dir(p))
                     ui.menu_item("Batch on this folder…", lambda p=path: self.wb.new_batch(
                         self._batch_pattern(p)))
@@ -831,6 +845,10 @@ SHORTCUTS = [("/ or Ctrl+K", "command palette"), ("Ctrl+P", "open a file or an o
              ("Ctrl+`", "show or hide the Python terminal"),
              ("Ctrl+Shift+I", "show or hide the chat"),
              ("Ctrl+\\", "split the work area in two sides (right-click a tab to move it)"),
+             ("Ctrl+click, Alt+F12", "go to the definition of a name, or show it in place "
+              "(editor; also F12 in the desktop window)"),
+             ("Format button", "format the Python file with ruff (editor; also its context "
+              "menu)"),
              ("Drag", "zoom on a rectangle (Zoom mode) or move (Move mode) on a chart"),
              ("Middle drag, Shift+wheel", "move along the abscissa of a chart"),
              ("Ctrl+wheel", "zoom a chart around the cursor"),

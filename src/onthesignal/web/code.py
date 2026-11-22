@@ -2,8 +2,9 @@
 
 Jedi analyses the code of the file together with the live namespace of the Python terminal,
 so that after ``S1.`` the editor proposes ``sensitivity``, ``lnm``… and documents the API of
-onthesignal. ruff checks the file (its rules and configuration are those of the project:
-``pyproject.toml`` or ``ruff.toml`` near the file, ruff's defaults otherwise).
+onthesignal, and finds where a name is defined. ruff checks and formats the file (its rules
+and configuration are those of the project: ``pyproject.toml`` or ``ruff.toml`` near the file,
+ruff's defaults otherwise).
 """
 
 from __future__ import annotations
@@ -24,9 +25,15 @@ warnings.filterwarnings("ignore", module=r"jedi(\.|$)")
 
 
 def _script(code: str, namespace: dict | None, path: str | Path | None) -> Any:
+    """Jedi on ``code`` and the namespace; imports are also searched in the folder of the
+    file (a module next to it) and in the current folder (the project)."""
     import jedi
 
-    return jedi.Interpreter(code, [namespace or {}], path=str(path) if path else None)
+    if not path:
+        return jedi.Interpreter(code, [namespace or {}])
+    folder = Path(path).resolve().parent
+    project = jedi.Project(folder, added_sys_path=[str(folder), str(Path.cwd())])
+    return jedi.Interpreter(code, [namespace or {}], path=str(path), project=project)
 
 
 def complete(code: str, line: int, column: int, namespace: dict | None = None,
@@ -88,6 +95,53 @@ def hover(code: str, line: int, column: int, namespace: dict | None = None,
     return None
 
 
+#: Largest source file sent to the browser to show a definition (bytes).
+MAX_SOURCE = 2_000_000
+
+
+def definition(code: str, line: int, column: int, namespace: dict | None = None,
+               path: str | Path | None = None) -> dict | None:
+    """Where the name under the cursor is defined: ``line`` (from 1) and ``column`` (from 0),
+    with ``path`` and ``text`` of the file when it is another one (empty ``path``: this file).
+    For an object of the terminal (``S1``), the definition of its type."""
+    try:
+        script = _script(code, namespace, path)
+        names = [n for n in script.goto(line, column, follow_imports=True)
+                 if n.line is not None and n.module_path is not None]
+        # an object of the terminal has no place in a file: the definition of its type
+        names = names or [n for n in script.infer(line, column)
+                          if n.line is not None and n.module_path is not None]
+    except Exception:
+        return None
+    here = Path(path).resolve() if path else None
+    for name in names:
+        module = Path(name.module_path)
+        if here is not None and module.resolve() == here:
+            return {"path": "", "line": int(name.line), "column": int(name.column or 0)}
+        if module.suffix not in (".py", ".pyi") or not module.is_file() or \
+                module.stat().st_size > MAX_SOURCE:
+            continue
+        return {"path": str(module), "line": int(name.line), "column": int(name.column or 0),
+                "text": module.read_text(encoding="utf-8", errors="replace")}
+    return None
+
+
+def format_source(text: str, path: str | Path, cwd: str | Path | None = None,
+                  timeout: float = 15.0) -> str | None:
+    """``text`` formatted by ``ruff format`` (configuration of the project); ``None`` without
+    ruff or when the code cannot be parsed."""
+    binary = ruff_binary()
+    if binary is None:
+        return None
+    try:
+        proc = subprocess.run([binary, "format", "--stdin-filename", str(path), "-"],
+                              input=text, capture_output=True, text=True, cwd=cwd,
+                              timeout=timeout, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return proc.stdout if proc.returncode == 0 else None
+
+
 def ruff_binary() -> str | None:
     """The ruff executable (``[web]`` dependency), or ``None`` when it is not installed."""
     try:
@@ -139,4 +193,5 @@ def ruff_markers(text: str, path: str | Path, cwd: str | Path | None = None,
     return markers
 
 
-__all__ = ["complete", "hover", "ruff_binary", "ruff_markers", "signature"]
+__all__ = ["complete", "definition", "format_source", "hover", "ruff_binary", "ruff_markers",
+           "signature"]

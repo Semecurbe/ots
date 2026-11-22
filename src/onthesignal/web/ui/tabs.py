@@ -1251,12 +1251,15 @@ def _tree_nodes(value: Any, prefix: str = "n", depth: int = 0) -> list[dict]:
 class EditorTab:
     """Text file in Monaco (§9): save, syntax check, run script, run selection."""
 
-    def __init__(self, wb: Workbench, path: Path, text: str | None = None) -> None:
+    def __init__(self, wb: Workbench, path: Path, text: str | None = None,
+                 line: int = 0) -> None:
         self.wb, self.path = wb, path
         self.dirty = False
         self.mtime = path.stat().st_mtime if path.exists() else 0.0
         #: Text to edit instead of the file's (a change accepted after its tab was closed).
         self.initial = text
+        #: Line shown at opening (a definition found from another file).
+        self.line = line
 
     def build(self) -> EditorTab:
         if self.initial is not None:
@@ -1274,6 +1277,10 @@ class EditorTab:
                 ui.space()
                 ui.button("Save", icon="save", on_click=self._save_clicked) \
                     .props("flat dense no-caps").tooltip("Ctrl+S")
+                if self.path.suffix == ".py":
+                    ui.button("Format", icon="format_align_left", on_click=self._format) \
+                        .props("flat dense no-caps") \
+                        .tooltip("ruff format (context menu: Format Document)")
                 if self.path.suffix == ".py" and self.wb.state.code_execution:
                     ui.button("Run", icon="play_arrow", on_click=self._run_clicked) \
                         .props("flat dense no-caps").tooltip("F5")
@@ -1292,6 +1299,8 @@ class EditorTab:
             if self.initial is not None:  # not the saved text
                 self.editor._props["startDirty"] = True
                 self._set_dirty(True)
+            if self.line:
+                self.editor._props["startLine"] = self.line
             self.editor.on("save", lambda e: self.save(e.args))
             self.editor.on("run", lambda e: self.run(e.args))
             self.editor.on("run_selection", self._run_selection_event)
@@ -1299,6 +1308,7 @@ class EditorTab:
             if self.path.suffix == ".py":
                 self.editor.on("request", self._request)  # completion, signature, hover
                 self.editor.on("lint", self._lint)
+                self.editor.on("open_definition", self._open_definition)
         return self
 
     async def _request(self, e: Any) -> None:
@@ -1306,15 +1316,48 @@ class EditorTab:
         from .. import code
 
         args = e.args or {}
-        handlers = {"complete": code.complete, "signature": code.signature,
-                    "hover": code.hover}
-        handler = handlers.get(str(args.get("kind")))
+        kind = str(args.get("kind"))
+        if kind == "format":  # ruff format, with the configuration of the project
+            result = await run.io_bound(code.format_source, str(args.get("code", "")),
+                                        self.path, self.wb.root)
+            if result is None:
+                ui.notify("Not formatted: ruff is missing or the code has a syntax error",
+                          type="warning")
+            self.editor.run_method("resolveRequest", args.get("id"), result)
+            return
+        handlers: dict[str, Callable[..., Any]] = {
+            "complete": code.complete, "signature": code.signature, "hover": code.hover,
+            "definition": code.definition}
+        handler = handlers.get(kind)
         if handler is None:
             return
         namespace = self.wb.state.terminal.console.ns
         result = await run.io_bound(handler, str(args.get("code", "")), int(args.get("line", 1)),
                                     int(args.get("column", 0)), namespace, self.path)
         self.editor.run_method("resolveRequest", args.get("id"), result)
+
+    def _format(self) -> None:
+        self.editor.run_method("format")  # answered by ruff format on the server
+
+    def _open_definition(self, e: Any) -> None:
+        """Go to a definition in another file: a file of the project opens in the editor at
+        its line; the definitions of libraries are shown in place (Alt+F12)."""
+        args = e.args or {}
+        path, line = Path(str(args.get("path", ""))), int(args.get("line") or 1)
+        try:
+            path = confine(path, self.wb.roots)
+        except PermissionError:
+            ui.notify(f"{path.name} is outside the project: Alt+F12 shows the definition in "
+                      "place", type="info")
+            return
+        key = f"file:{path}"
+        tab = self.wb.work.content(key)
+        if isinstance(tab, EditorTab):
+            self.wb.work.open(key, path.name, lambda: tab)
+            tab.editor.run_method("revealLine", line)
+        else:
+            self.wb.work.open(key, path.name, lambda: EditorTab(self.wb, path, line=line).build(),
+                              "edit")
 
     async def _lint(self, e: Any, report: bool = False) -> None:
         """ruff after a pause of typing (and at saving, also in the Problems panel)."""
@@ -1502,7 +1545,8 @@ class DiffTab:
                     .props("flat dense no-caps")
             ui.label((self.note + " " if self.note else "") +
                      "Left: current text. Right: proposal of the AI, which you can still "
-                     "edit. Nothing is written or run before you accept.") \
+                     "edit; the arrow of a block between the two sides refuses that block. "
+                     "Nothing is written or run before you accept.") \
                 .classes("text-caption text-grey-7")
             self.editor = MonacoEditor(self.proposed, language_of(self.path or "text.txt"),
                                        original=self.original) \

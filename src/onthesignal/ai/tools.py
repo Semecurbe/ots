@@ -86,6 +86,17 @@ def build_tools(session: Session) -> dict[str, Tool]:
         loaded = loaded if isinstance(loaded, list) else [loaded]
         return [{"name": s.name, "title": s.title, "id": s.id} for s in loaded]
 
+    def sds_channels(args: dict) -> Any:
+        return api.sds_channels(args["folder"])
+
+    def load_sds(args: dict) -> Any:
+        options = {k: args[k] for k in ("gaps", "unit", "sensitivity") if args.get(k) is not None}
+        loaded = api.load_sds(args["folder"], args.get("channel") or "*", args.get("starttime"),
+                              args.get("endtime"), **options)
+        loaded = loaded if isinstance(loaded, list) else [loaded]
+        return [{"name": s.name, "title": s.title, "id": s.id, "start": str(s.starttime),
+                 "duration_s": s.duration, "gaps": len(s.gaps)} for s in loaded]
+
     def make_signal(args: dict, func: Callable[..., Any]) -> Any:
         args = dict(args)
         sig = func(name=args.pop("name", None), **args)
@@ -123,6 +134,22 @@ def build_tools(session: Session) -> dict[str, Tool]:
          {**obj, "properties": {"path": {"type": "string"},
                                 "options": {"type": "object", "description": "load options"}},
           "required": ["path"]}, load_file, False),
+        ("sds_channels", "Channels of the day files (NET.STA.LOC.CHA.D.YEAR.DAY) of an SDS "
+         "archive folder: first and last day, missing days, size",
+         {**obj, "properties": {"folder": {"type": "string"}}, "required": ["folder"]},
+         sds_channels, False),
+        ("load_sds", "Load channels of an SDS archive over a time window: several days merged "
+         "into one signal per channel (a missing day is a gap: gaps=longest keeps the longest "
+         "continuous segment, split gives one signal per segment). Useful for lnm over days",
+         {**obj, "properties": {
+             "folder": {"type": "string"},
+             "channel": {"type": "string", "description": "NET.STA.LOC.CHA or a pattern"},
+             "starttime": {"type": "string", "description": "UTC, e.g. 2026-09-21"},
+             "endtime": {"type": "string", "description": "UTC, e.g. 2026-09-24"},
+             "gaps": {"type": "string", "enum": ["longest", "split", "fill", "error"]},
+             "unit": {"type": "string"},
+             "sensitivity": {"type": "number", "description": "unit per count"}},
+          "required": ["folder", "channel"]}, load_sds, False),
         ("list_scripts", "List the user scripts", {**obj, "properties": {}}, list_scripts,
          False),
         ("run_script", "Run a user script on signals (asks the user)",

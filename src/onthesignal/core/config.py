@@ -59,6 +59,7 @@ DEFAULTS: dict[str, dict[str, Any]] = {
         "upload_max_mb": 1024,
         "editor_max_mb": 5,
         "theme": "auto",
+        "notify_after": 15.0,
         "points_per_pixel": 2,
         "autosave": False,
     },

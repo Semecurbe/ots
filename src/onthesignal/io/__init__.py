@@ -7,12 +7,16 @@
 from __future__ import annotations
 
 import functools
+import glob
+import os
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
+from ..core.errors import FileFormatError, ParameterError
 from ..core.signal import Signal
 from .export import save_signal
-from .mseed import GAP_POLICIES, SDS_NAME, read_obspy
+from .mseed import GAP_POLICIES, SDS_NAME, read_files, read_obspy
 from .text import read_text
 
 MSEED_EXTENSIONS = {".mseed", ".miniseed", ".ms", ".seed"}
@@ -74,15 +78,45 @@ def detect_format(path: str | Path) -> str:
     return "obspy"
 
 
-def read(path: str | Path, fmt: str | None = None, **options: Any) -> list[Signal]:
-    """Read a file into a list of signals (format from the extension unless ``fmt`` is given)."""
-    kind = (fmt or detect_format(path)).lower()
+def expand(path: str | Path | Sequence[str | Path]) -> list[Path] | None:
+    """Files of a list or of a pattern (``data/XX.LORA.HA.BHE.D.2026.*``); ``None`` for one
+    path."""
+    if isinstance(path, (list, tuple)):
+        return [Path(p) for p in path]
+    text = str(path)
+    if not any(c in text for c in "*?["):
+        return None
+    files = sorted(Path(p) for p in glob.glob(os.path.expanduser(text)) if Path(p).is_file())
+    if not files:
+        raise FileFormatError(f"No file matches {text}")
+    return files
+
+
+def read(path: str | Path | Sequence[str | Path], fmt: str | None = None,
+         **options: Any) -> list[Signal]:
+    """Read a file into a list of signals (format from the extension unless ``fmt`` is given).
+
+    ``path`` may also be a list of files or a pattern (``*``, ``?``): their records are merged
+    into one signal per channel (day files of an archive, :func:`read_files`).
+    """
+    files = expand(path)
+    if files is not None and not files:
+        raise FileFormatError("No file to read")
+    if files is not None and len(files) > 1:
+        if any(detect_format(p) == "txt" for p in files) and (fmt or "").lower() not in (
+                "mseed", "miniseed"):
+            raise ParameterError("Several text files cannot be merged: load them one by one")
+        kind = (fmt or "").lower()
+        return read_files(files, fmt="MSEED" if kind in ("mseed", "miniseed") else None,
+                          **options)
+    single = files[0] if files else Path(cast("str | Path", path))
+    kind = (fmt or detect_format(single)).lower()
     if kind in ("txt", "text", "csv"):
-        return read_text(path, **options)
+        return read_text(single, **options)
     if kind in ("mseed", "miniseed"):
-        return read_obspy(path, fmt="MSEED", **options)
-    return read_obspy(path, **options)
+        return read_obspy(single, fmt="MSEED", **options)
+    return read_obspy(single, **options)
 
 
-__all__ = ["GAP_POLICIES", "SDS_NAME", "detect_format", "is_miniseed", "is_signal_file", "read",
-           "read_obspy", "read_text", "save_signal"]
+__all__ = ["GAP_POLICIES", "SDS_NAME", "detect_format", "expand", "is_miniseed", "is_signal_file",
+           "read", "read_files", "read_obspy", "read_text", "save_signal"]

@@ -84,6 +84,12 @@ The project follows [Semantic Versioning](https://semver.org/).
     editor, and the scripts of `/ai_script`, written only when accepted;
   - LaTeX formulas of the chat drawn in MathML (`latex2mathml`, in the `web` extra); the last
     question can be edited and asked again;
+  - editor: *Format* with `ruff format`, Go to Definition (Ctrl+click, a file of the project
+    opens at the line) and Peek Definition (Alt+F12) with Jedi; in the diff view of the AI, a
+    block can be refused alone (arrow between the two sides);
+  - notification of the browser at the end of a task longer than `[web] notify_after` seconds
+    (15 by default) when the tab is not in front (*Notify me when a long task ends* in *Jobs*);
+  - the significance level of `coherence` is linked to its row of the results;
   - batches (*Scripts* view, or `/batch` in the palette): analysis or script, file patterns
     of the project, generated parameter form, reading options, progress file by file, table
     of the results with the failures, CSV or JSON export, global Quarto report;
@@ -105,6 +111,13 @@ The project follows [Semantic Versioning](https://semver.org/).
 - AppImage built by `packaging/appimage/build_appimage.py` (python-appimage): one file with
   Python 3.13, onthesignal and Qt WebEngine, which opens the desktop application (`--console`,
   `web`, `acq`, `rt` and `run` give the other commands).
+- Several days of an SDS archive in one signal (day files `NET.STA.LOC.CHA.D.YEAR.DAY`, in an
+  archive tree or gathered in one folder): `sds_channels(folder)`, `load_sds(folder, channel,
+  starttime, endtime)`, `/sds` in the console, and in the web interface *Load several days…*
+  of the *Files* view (channels, missing days, window, estimated memory). `load` also accepts
+  a list of files or a pattern (`data/XX.LORA.HA.BHE.D.2026.2*`), merged per channel; a
+  missing day is a gap (`gaps`); the AI assistant has the tools `sds_channels` and
+  `load_sds`. `python -m onthesignal` runs the command line.
 - Signals: `S + k`, `k + S`, `S - k` and `k - S` shift the samples by `k` counts (new signal,
   `offset(k)` too); `S.data = …` replaces the samples (e.g. `S4.data = S4.data + 100`), which is
   noted in the history (`samples modified`); the console also notes changes made in place

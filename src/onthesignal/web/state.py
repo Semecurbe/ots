@@ -50,6 +50,8 @@ class Job:
     result: Any = None
     error: str = ""
     cancel: Callable[[], None] | None = None
+    #: Browser tab that started the task (notified at its end).
+    client: str | None = None
 
     @property
     def duration(self) -> float:
@@ -69,7 +71,7 @@ class Jobs:
               on_done: Callable[[Job], None] | None = None,
               cancel: Callable[[], None] | None = None, client: str | None = None) -> Job:
         """Run ``func(job)`` in a thread; ``client`` is the browser tab that asked for it."""
-        job = Job(next(self._ids), name, kind, cancel=cancel)
+        job = Job(next(self._ids), name, kind, cancel=cancel, client=client)
         with self._lock:
             self.items.append(job)
             del self.items[:-50]
